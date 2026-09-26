@@ -156,6 +156,9 @@
     .view-option:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
     .wgw{flex:1;overflow:auto}
     .wg{display:grid;grid-template-columns:repeat(7,minmax(140px,1fr));min-width:980px;height:100%}
+    .wg.view-refresh{animation:view-refresh .28s ease-out}
+    @keyframes view-refresh{from{opacity:.55;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+    @media(prefers-reduced-motion:reduce){.wg.view-refresh{animation:none}}
     .dc{border-right:1px solid var(--border);display:flex;flex-direction:column}
     .dc:last-child{border-right:none}
     .dh{position:sticky;top:0;z-index:5;background:var(--surface);padding:7px 5px;border-bottom:2px solid var(--border);text-align:center;flex-shrink:0}
@@ -1173,9 +1176,9 @@ const LUNCH_L = {s:'12:00 PM',e:'12:35 PM'};
 const PCOLS = ['#4285f4','#ea4335','#fbbc04','#34a853','#9334e6','#fa7b17','#24c1e0','#e91e63','#00897b','#5e35b1','#7cb342','#6d4c41'];
 const PAL   = ['#4285f4','#ea4335','#fbbc04','#34a853','#9334e6','#fa7b17','#24c1e0','#e52592','#00796b'];
 const DAYS  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-const SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const SHORT = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const WE    = new Set([0,6]);
-
+ 
 // Anchor: Sep 9 2025 = Day A (index 0)
 const ANCHOR = new Date(2025, 8, 9);
 const LS_KEY = 'frhsd_v5';
@@ -1765,6 +1768,11 @@ function setViewMode(mode){
   cfg.viewMode=mode;
   wkStart=mode==='week'?getWkStart(new Date()):dateOnly(new Date());
   centerDayColumnOnRender=mode==='centered';
+  const grid=document.getElementById('wg');
+  grid.classList.remove('view-refresh');
+  void grid.offsetWidth;
+  grid.classList.add('view-refresh');
+  grid.addEventListener('animationend',()=>grid.classList.remove('view-refresh'),{once:true});
   save();
   renderWeek();
 }
@@ -2778,7 +2786,7 @@ function renderAutoList(){
   }
   list.innerHTML='';
   const whereLabel={'same':'→ class slot','lunch':'→ Lunch','after':'→ Extra Tasks'};
-  const wdNames=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const wdNames=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   autos.forEach(a=>{
     let trigger='';
     if(a.type==='class'){

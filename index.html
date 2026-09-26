@@ -127,6 +127,7 @@
     .hln span{color:var(--primary)}
     .hwk{font-size:12px;color:var(--ts);background:var(--surface2);padding:3px 10px;border-radius:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
     .hr{display:flex;align-items:center;gap:4px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
+    .toolbar-row{display:contents}
     .wnb{width:28px;height:28px;border-radius:50%;border:1px solid var(--border);background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--ts);transition:all .2s;flex-shrink:0}
     .wnb:hover{background:var(--surface2)}
     .tdb{padding:5px 10px;border-radius:20px;border:1px solid var(--border);background:none;cursor:pointer;font-size:12px;font-family:var(--f);color:var(--ts);transition:all .2s;white-space:nowrap}
@@ -384,7 +385,8 @@
       .tdb{display:none}
       .app-header{flex-wrap:wrap;padding:6px 8px}
       .hl{flex-basis:100%}
-      .hr{width:100%;justify-content:flex-start}
+      .hr{width:100%;justify-content:center}
+      .toolbar-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px;width:100%}
       .md{padding:20px 16px}
       .mda{justify-content:stretch}
       .mda .btn{flex:1;justify-content:center}
@@ -415,23 +417,12 @@
     }
     @media(max-width:400px){
       .ocard{padding:20px 12px}
-      .app-header{padding:0 8px}
-      .hr{gap:3px}
       .app-header{flex-wrap:wrap;padding:6px 8px}
       .hl{flex-basis:100%}
-      .hr{width:100%;display:grid;grid-template-columns:36px 52px 36px 66px 48px 36px;grid-template-areas:"prev next view view view settings" "calendar timer auto history save account";gap:4px;justify-content:stretch;align-items:center}
-      #prev-btn{grid-area:prev}
-      #next-btn{grid-area:next}
-      .view-switch{grid-area:view;justify-self:center}
-      .calendar-btn{grid-area:calendar}
-      .calendar-btn + .icb{grid-area:timer}
-      #active-timer{grid-area:timer;width:52px;min-height:36px;justify-content:center;padding:3px;gap:3px;font-size:9px}
+      .hr{gap:4px}
+      #active-timer{width:52px;min-height:36px;justify-content:center;padding:3px;gap:3px;font-size:9px}
       .hr:has(#active-timer.visible) .calendar-btn + .icb{display:none}
-      #auto-btn{grid-area:auto}
-      .tool-group{grid-area:history;justify-self:center}
-      #save-btn{grid-area:save;justify-self:center}
-      #set-btn{grid-area:settings}
-      #user-pill{grid-area:account;width:36px;max-width:36px;height:36px;padding:0;justify-content:center}
+      #user-pill{width:36px;max-width:36px;height:36px;padding:0;justify-content:center}
       #user-pill-label{display:none}
       .view-option{padding:5px 9px;font-size:10px}
     }
@@ -598,6 +589,7 @@
       <span class="hwk" id="wklabel">–</span>
     </div>
     <div class="hr">
+      <div class="toolbar-row">
       <button class="wnb" id="prev-btn">‹</button>
       <button class="tdb" id="today-btn">Today</button>
       <button class="wnb" id="next-btn">›</button>
@@ -609,13 +601,16 @@
       <button class="icb calendar-btn" title="Open calendar" onclick="openCalendar()">▦</button>
       <button class="icb" title="Focus timer" onclick="openTimer()">◷</button>
       <button class="active-timer" id="active-timer" title="Open active timer" onclick="openTimer()"><span class="active-timer-dot"></span><span id="active-timer-label">00:00</span></button>
+      </div>
+      <div class="toolbar-row">
       <button class="icb auto-silhouette" id="auto-btn" title="Automations" onclick="openAutoModal()"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="7" r="4"/><path d="M4.5 21c.4-4.1 3.2-6.5 7.5-6.5s7.1 2.4 7.5 6.5H4.5z"/></svg></button>
       <div class="tool-group" aria-label="History controls"><button class="icb" title="Undo" onclick="undoAction()">↶</button><button class="icb" title="Redo" onclick="redoAction()">↷</button></div>
       <button class="save-btn" id="save-btn" title="Save changes" onclick="saveCurrentState()">Save</button>
-      <button class="icb" id="set-btn" title="Settings" onclick="openSettings()">⚙️</button>
+      <button class="icb" id="set-btn" title="Settings" onclick="openSettings()">⚙</button>
       <div id="user-pill" class="auth-user-pill" style="display:none;cursor:pointer" onclick="openSettings()" title="Signed in — click for settings">
         <span class="sync-dot" id="sync-dot"></span>
         <span id="user-pill-label">…</span>
+      </div>
       </div>
     </div>
   </header>

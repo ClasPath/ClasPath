@@ -585,6 +585,12 @@
         <button class="st" data-t="late">Late 🕗</button>
       </div>
     </div>
+    <div class="fg"><label>Time format</label>
+      <div class="stt" id="ss-time-format">
+        <button class="st" data-t="12h">12-hour</button>
+        <button class="st" data-t="24h">24-hour</button>
+      </div>
+    </div>
     <div class="fg"><label>Periods (P1–P7)</label>
       <div class="plist" id="splist"></div>
     </div>
@@ -616,12 +622,6 @@
           <button class="st"        id="auto-type-date"    onclick="setAutoType('date')"   >🗓️ A specific date</button>
           
         </div>
-      </div>
-
-      <!-- class trigger: pick period -->
-      <div id="auto-class-pick" class="fg" style="margin-bottom:8px">
-        <label>Which class?</label>
-        <div class="app-select" data-select-id="auto-period-sel"><select id="auto-period-sel" class="app-select-native"></select><button class="app-select-button" type="button">Choose a class</button><div class="app-select-menu"></div></div>
       </div>
 
       <!-- weekday trigger: checkboxes -->
@@ -660,10 +660,10 @@
         <input type="text" id="auto-keyword" placeholder="e.g. test, quiz, essay, project, vocab"/>
       </div>
 
-      <!-- WHERE: which slot does it appear in? -->
+      <!-- Destination: a class slot or shared schedule section -->
       <div class="fg" style="margin-bottom:8px">
-        <label>Where should it appear?</label>
-        <div class="app-select" data-select-id="auto-where"><select id="auto-where" class="app-select-native"><option value="same">Same class slot (only for "class meets" trigger)</option><option value="lunch">🍽️ Lunch</option><option value="after">🏃 Extra Tasks</option></select><button class="app-select-button" type="button">Same class slot (only for "class meets" trigger)</button><div class="app-select-menu"></div></div>
+        <label>Class or destination</label>
+        <div class="app-select" data-select-id="auto-where"><select id="auto-where" class="app-select-native"><option value="">Choose a class or destination</option></select><button class="app-select-button" type="button">Choose a class or destination</button><div class="app-select-menu"></div></div>
       </div>
 
       <!-- Event text + time -->
@@ -1188,7 +1188,7 @@ function getStorageKey(){
 }
 
 // ─── STATE ───────────────────────────────────────────────
-let cfg = { school:'early', periods:[], automations:[], viewMode:'week' };
+let cfg = { school:'early', periods:[], automations:[], viewMode:'week', timeFormat:'12h' };
 // automations: [{id, type:'class'|'weekday'|'letter', match:periodNum|[weekdayNums]|[letters], text, time, enabled}]
 
 let data = {
@@ -1317,13 +1317,25 @@ function getOff(letter){
   return [1,2,3,4,5,6,7].filter(p=>!vis.has(p));
 }
 
+function formatClockTime(value){
+  const match=String(value||'').trim().match(/^(\d{1,2}):(\d{2})(?:\s*([AP]M))?$/i);
+  if(!match)return String(value||'');
+  let hours=Number(match[1]);
+  const minutes=match[2];
+  const period=match[3]?.toUpperCase();
+  if(period)hours=(hours%12)+(period==='PM'?12:0);
+  else hours%=24;
+  if(cfg.timeFormat==='24h')return `${String(hours).padStart(2,'0')}:${minutes}`;
+  return `${hours%12||12}:${minutes} ${hours>=12?'PM':'AM'}`;
+}
+
 function bell(slotPos){
   const b=cfg.school==='late'?BELL_L[slotPos]:BELL_E[slotPos];
-  return b?`${b.s}–${b.e}`:'';
+  return b?`${formatClockTime(b.s)}–${formatClockTime(b.e)}`:'';
 }
 function lunchTime(){
   const l=cfg.school==='late'?LUNCH_L:LUNCH_E;
-  return `${l.s}–${l.e}`;
+  return `${formatClockTime(l.s)}–${formatClockTime(l.e)}`;
 }
 
 // ─── DATE UTILS ──────────────────────────────────────────
@@ -2274,12 +2286,17 @@ function openTaskTimePicker(input,title='Set task time'){
   const picker=document.createElement('div');
   picker.className='task-time-picker';
   const dropdown=(label,options,part)=>`<div class="task-time-dropdown" data-part="${part}"><button class="task-time-dropdown-button" type="button">${label}</button><div class="task-time-dropdown-menu">${options.map(option=>`<button class="task-time-option" type="button" data-value="${option.value}">${option.label}</button>`).join('')}</div></div>`;
+  const use24Hour=cfg.timeFormat==='24h';
+  const hourOptions=Array.from({length:use24Hour?24:12},(_,i)=>{
+    const value=use24Hour?String(i).padStart(2,'0'):String(i+1);
+    return {value,label:value};
+  });
   picker.innerHTML=`
     <div class="task-time-picker-title">${title}</div>
     <div class="task-time-picker-grid">
-      ${dropdown('12',Array.from({length:12},(_,i)=>({value:String(i+1),label:String(i+1)})),'hour')}
+      ${dropdown(use24Hour?'00':'12',hourOptions,'hour')}
       ${dropdown('00',Array.from({length:60},(_,i)=>({value:String(i).padStart(2,'0'),label:String(i).padStart(2,'0')})),'minute')}
-      ${dropdown('AM',[{value:'AM',label:'AM'},{value:'PM',label:'PM'}],'ampm')}
+      ${use24Hour?'':dropdown('AM',[{value:'AM',label:'AM'},{value:'PM',label:'PM'}],'ampm')}
     </div>
     <button class="task-time-picker-clear" type="button">Clear time</button>
   `;
@@ -2295,13 +2312,13 @@ function openTaskTimePicker(input,title='Set task time'){
     dropdownElement.querySelector('.task-time-dropdown-button').textContent=value;
     dropdownElement.querySelectorAll('.task-time-option').forEach(option=>option.classList.toggle('selected',option.dataset.value===value));
   };
-  setDropdown(hourSelect,String(hour24%12||12));
+  setDropdown(hourSelect,use24Hour?String(hour24).padStart(2,'0'):String(hour24%12||12));
   setDropdown(minuteSelect,String(Number.isFinite(current[1])?current[1]:0).padStart(2,'0'));
-  setDropdown(ampmSelect,hour24>=12?'PM':'AM');
+  if(ampmSelect)setDropdown(ampmSelect,hour24>=12?'PM':'AM');
 
   const apply=()=>{
-    const hour12=Number(hourSelect.dataset.value);
-    const hour24Value=(hour12%12)+(ampmSelect.dataset.value==='PM'?12:0);
+    const selectedHour=Number(hourSelect.dataset.value);
+    const hour24Value=use24Hour?selectedHour:(selectedHour%12)+(ampmSelect.dataset.value==='PM'?12:0);
     input.value=`${String(hour24Value).padStart(2,'0')}:${minuteSelect.dataset.value}`;
   };
   picker.querySelectorAll('.task-time-dropdown').forEach(dropdownElement=>{
@@ -2456,13 +2473,13 @@ function renderTasks(el,key){
   // Auto items first (ghost)
   autoItems.forEach(t=>{
     const li=document.createElement('li'); li.className='tki auto-item';
-    li.innerHTML=`<div class="tkc${isAutoDone(t.date,t.id)?' done':''}" onclick="toggleAutoTask('${t.date}',${t.id})" tabindex="0"></div><span style="font-size:12px;flex-shrink:0">🔁</span>${t.time?`<span style="font-size:10px;color:var(--primary);font-weight:700;white-space:nowrap">${t.time}</span>`:''}<span class="tkt${isAutoDone(t.date,t.id)?' done':''}">${esc(t.text)}</span><span class="auto-badge">auto</span>`;
+    li.innerHTML=`<div class="tkc${isAutoDone(t.date,t.id)?' done':''}" onclick="toggleAutoTask('${t.date}',${t.id})" tabindex="0"></div><span style="font-size:12px;flex-shrink:0">🔁</span>${t.time?`<span style="font-size:10px;color:var(--primary);font-weight:700;white-space:nowrap">${formatClockTime(t.time)}</span>`:''}<span class="tkt${isAutoDone(t.date,t.id)?' done':''}">${esc(t.text)}</span><span class="auto-badge">auto</span>`;
     el.appendChild(li);
   });
   // Real tasks
   tasks.forEach(t=>{
     const li=document.createElement('li'); li.className='tki';
-    const timeLabel=t.time?`<span class="task-time">${t.time}</span>`:'';
+    const timeLabel=t.time?`<span class="task-time">${formatClockTime(t.time)}</span>`:'';
     li.innerHTML=`<div class="tkc${t.done?' done':''}" onclick="toggleTask('${key}',${t.id})" tabindex="0"></div>${timeLabel}<span class="tkt${t.done?' done':''}">${esc(t.text)}</span><span class="task-tools"><button class="task-settings-btn" onclick="openTaskEditor('task','${key}',${t.id})" title="Task options">⚙</button></span>`;
     el.appendChild(li);
   });
@@ -2493,12 +2510,12 @@ function renderFreeTasks(el,fKey){
   }
   autoItems.forEach(t=>{
     const li=document.createElement('li'); li.className='tki auto-item';
-    li.innerHTML=`<div class="tkc${isAutoDone(t.date,t.id)?' done':''}" onclick="toggleAutoTask('${t.date}',${t.id})" tabindex="0"></div><span style="font-size:12px;flex-shrink:0">🔁</span>${t.time?`<span style="font-size:10px;color:var(--primary);font-weight:700;white-space:nowrap">${t.time}</span>`:''}<span class="tkt${isAutoDone(t.date,t.id)?' done':''}">${esc(t.text)}</span><span class="auto-badge">auto</span>`;
+    li.innerHTML=`<div class="tkc${isAutoDone(t.date,t.id)?' done':''}" onclick="toggleAutoTask('${t.date}',${t.id})" tabindex="0"></div><span style="font-size:12px;flex-shrink:0">🔁</span>${t.time?`<span style="font-size:10px;color:var(--primary);font-weight:700;white-space:nowrap">${formatClockTime(t.time)}</span>`:''}<span class="tkt${isAutoDone(t.date,t.id)?' done':''}">${esc(t.text)}</span><span class="auto-badge">auto</span>`;
     el.appendChild(li);
   });
   tasks.forEach(t=>{
     const li=document.createElement('li'); li.className='tki';
-    const timeLabel=t.time?`<span class="task-time">${t.time}</span>`:'';
+    const timeLabel=t.time?`<span class="task-time">${formatClockTime(t.time)}</span>`:'';
     li.innerHTML=`<div class="tkc${t.done?' done':''}" onclick="toggleFree('${fKey}',${t.id})" tabindex="0"></div>${timeLabel}<span class="tkt${t.done?' done':''}">${esc(t.text)}</span><span class="task-tools"><button class="task-settings-btn" onclick="openTaskEditor('free','${fKey}',${t.id})" title="Task options">⚙</button></span>`;
     el.appendChild(li);
   });
@@ -2514,12 +2531,12 @@ function renderAfterTasks(el,fKey){
   el.innerHTML='';
   autoItems.forEach(t=>{
     const li=document.createElement('li'); li.className='tki auto-item';
-    li.innerHTML=`<div class="tkc${isAutoDone(t.date,t.id)?' done':''}" onclick="toggleAutoTask('${t.date}',${t.id})" tabindex="0"></div><span style="font-size:12px;flex-shrink:0">🔁</span>${t.time?`<span style="font-size:10px;color:var(--primary);font-weight:700;white-space:nowrap">${t.time}</span>`:''}<span class="tkt${isAutoDone(t.date,t.id)?' done':''}">${esc(t.text)}</span><span class="auto-badge">auto</span>`;
+    li.innerHTML=`<div class="tkc${isAutoDone(t.date,t.id)?' done':''}" onclick="toggleAutoTask('${t.date}',${t.id})" tabindex="0"></div><span style="font-size:12px;flex-shrink:0">🔁</span>${t.time?`<span style="font-size:10px;color:var(--primary);font-weight:700;white-space:nowrap">${formatClockTime(t.time)}</span>`:''}<span class="tkt${isAutoDone(t.date,t.id)?' done':''}">${esc(t.text)}</span><span class="auto-badge">auto</span>`;
     el.appendChild(li);
   });
   tasks.forEach(t=>{
     const li=document.createElement('li'); li.className='tki';
-    const timeLabel=t.time?`<span class="task-time">${t.time}</span>`:'';
+    const timeLabel=t.time?`<span class="task-time">${formatClockTime(t.time)}</span>`:'';
     li.innerHTML=`<div class="tkc${t.done?' done':''}" onclick="toggleFree('${fKey}',${t.id})" tabindex="0"></div>${timeLabel}<span class="tkt${t.done?' done':''}">${esc(t.text)}</span><span class="task-tools"><button class="task-settings-btn" onclick="openTaskEditor('free','${fKey}',${t.id})" title="Task options">⚙</button></span>`;
     el.appendChild(li);
   });
@@ -2639,11 +2656,16 @@ function initSettings(){
     document.querySelectorAll('#ss-school .st').forEach(x=>x.classList.remove('active'));
     t.classList.add('active');
   }));
+  document.querySelectorAll('#ss-time-format .st').forEach(t=>t.addEventListener('click',()=>{
+    document.querySelectorAll('#ss-time-format .st').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+  }));
   document.querySelectorAll('.mo').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)closeMod(o.id)}));
   document.addEventListener('click',closeColorPalettes);
 }
 function openSettings(){
   document.querySelectorAll('#ss-school .st').forEach(t=>t.classList.toggle('active',t.dataset.t===cfg.school));
+  document.querySelectorAll('#ss-time-format .st').forEach(t=>t.classList.toggle('active',t.dataset.t===(cfg.timeFormat||'12h')));
   buildPForm('splist');
   const sob = document.getElementById('signout-btn');
   if(sob) sob.style.display = supaUser ? '' : 'none';
@@ -2651,6 +2673,8 @@ function openSettings(){
 }
 function saveSets(){
   const t=document.querySelector('#ss-school .st.active'); if(t)cfg.school=t.dataset.t;
+  const timeFormat=document.querySelector('#ss-time-format .st.active')?.dataset.t;
+  cfg.timeFormat=timeFormat==='24h'?'24h':'12h';
   collectP('splist'); save(); closeMod('setmod'); renderWeek(); toast('Settings saved ✓');
 }
 function clearAll(){
@@ -2702,21 +2726,32 @@ function setAutoType(t){
       if(x===t){pickEl.classList.remove('reveal-in');void pickEl.offsetWidth;pickEl.classList.add('reveal-in');}
     }
   });
-  // "same class slot" option only makes sense for class trigger
-  const sameOpt = document.querySelector('#auto-where option[value="same"]');
-  if(sameOpt) sameOpt.disabled = (t !== 'class');
-  if(t !== 'class' && document.getElementById('auto-where').value === 'same'){
-    document.getElementById('auto-where').value = 'after';
-  }
+  populateAutomationDestinationOptions(t);
   refreshAppSelect(document.querySelector('[data-select-id="auto-where"]'));
+}
+
+function populateAutomationDestinationOptions(type=autoType){
+  const select=document.getElementById('auto-where');
+  if(!select)return;
+  const options=['<option value="">Choose a class or destination</option>'];
+  if(type==='class'){
+    cfg.periods.forEach(period=>{
+      const label=`P${period.num}: ${esc(period.name)}`;
+      options.push(`<option value="class:${period.num}:same">${label} — class slot</option>`);
+      options.push(`<option value="class:${period.num}:lunch">${label} — Lunch</option>`);
+      options.push(`<option value="class:${period.num}:after">${label} — Extra Tasks</option>`);
+    });
+  } else {
+    cfg.periods.forEach(period=>options.push(`<option value="period:${period.num}">P${period.num}: ${esc(period.name)}</option>`));
+    options.push('<option value="lunch">Lunch</option>','<option value="after">Extra Tasks</option>');
+  }
+  select.innerHTML=options.join('');
+  select.value='';
 }
 
 function openAutoModal(){
   bindAutomationTimePicker();
-  const sel = document.getElementById('auto-period-sel');
-  sel.innerHTML = cfg.periods.map(p=>`<option value="${p.num}">P${p.num}: ${esc(p.name)}</option>`).join('');
-  if(!sel.innerHTML) sel.innerHTML = '<option value="">No periods set</option>';
-  refreshAppSelect(document.querySelector('[data-select-id="auto-period-sel"]'));
+  populateAutomationDestinationOptions(autoType);
   refreshAppSelect(document.querySelector('[data-select-id="auto-where"]'));
   renderAutoList();
   openMod('automod');
@@ -2726,12 +2761,17 @@ function addAutomation(){
   const text = document.getElementById('auto-text').value.trim();
   if(!text){ toast('Enter event text'); return; }
   const time  = document.getElementById('auto-time').value || '';
-  const where = document.getElementById('auto-where').value || 'same';
+  const destination = document.getElementById('auto-where').value;
+  let where='';
+  let targetPeriod=null;
 
   let match;
   if(autoType === 'class'){
-    match = parseInt(document.getElementById('auto-period-sel').value, 10);
-    if(!match){ toast('Pick a class'); return; }
+    const selected=destination.match(/^class:(\d+):(same|lunch|after)$/);
+    if(!selected){ toast('Choose a class and destination'); return; }
+    match=Number(selected[1]);
+    targetPeriod=match;
+    where=selected[2];
   } else if(autoType === 'weekday'){
     match = [...document.querySelectorAll('.awd:checked')].map(c=>parseInt(c.value,10));
     if(!match.length){ toast('Pick at least one weekday'); return; }
@@ -2751,8 +2791,20 @@ function addAutomation(){
     match = keyword;
   }
 
+  if(autoType!=='class'){
+    const selectedClass=destination.match(/^period:(\d+)$/);
+    if(selectedClass){
+      where='class';
+      targetPeriod=Number(selectedClass[1]);
+    } else if(destination==='lunch'||destination==='after'){
+      where=destination;
+    } else {
+      toast('Choose a class or destination'); return;
+    }
+  }
+
   if(!cfg.automations) cfg.automations = [];
-  cfg.automations.push({ id: Date.now(), type: autoType, match, where, text, time, enabled: true });
+  cfg.automations.push({ id: Date.now(), type: autoType, match, where, targetPeriod, text, time, enabled: true });
 
   // Reset form
   document.getElementById('auto-text').value = '';
@@ -2785,7 +2837,7 @@ function renderAutoList(){
     return;
   }
   list.innerHTML='';
-  const whereLabel={'same':'→ class slot','lunch':'→ Lunch','after':'→ Extra Tasks'};
+  const whereLabel={'lunch':'→ Lunch','after':'→ Extra Tasks'};
   const wdNames=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   autos.forEach(a=>{
     let trigger='';
@@ -2804,8 +2856,10 @@ function renderAutoList(){
     } else if(a.type==='keyword'){
       trigger=`When task text contains “${esc(a.match)}”`;
     }
-    const wl=whereLabel[a.where||'same']||'';
-    const sub=`${trigger} ${wl}${a.time?' @ '+a.time:''}`;
+    const destinationPeriod=a.where==='class'?a.targetPeriod:(a.where==='same'&&a.type==='class'?a.match:null);
+    const destinationClass=cfg.periods.find(period=>period.num===Number(destinationPeriod));
+    const wl=destinationClass?`→ P${destinationClass.num}: ${esc(destinationClass.name)}`:(whereLabel[a.where||'same']||'→ class slot');
+    const sub=`${trigger} ${wl}${a.time?' @ '+formatClockTime(a.time):''}`;
     const row=document.createElement('div');
     row.className='auto-row';
     row.innerHTML=`
@@ -2840,45 +2894,40 @@ function dateAutomationMatches(date, match){
   return diffDays >= 0 && diffDays <= daysBefore;
 }
 
-// Ghost tasks for a class slot — type=class + where=same
+function automationMatchesDate(automation,date){
+  const dow=date.getDay();
+  const letter=getDayLetter(date);
+  if(automation.type==='class')return !!letter&&(getSlotsForLetter(letter)||[]).includes(Number(automation.match));
+  if(automation.type==='weekday')return automation.match.includes(dow);
+  if(automation.type==='letter')return !!letter&&automation.match.includes(letter);
+  if(automation.type==='date')return dateAutomationMatches(date,automation.match);
+  if(automation.type==='keyword')return taskTextMatchesKeyword(date,automation.match);
+  return false;
+}
+
+// Class-triggered and routed class-slot automations
 function getAutoTasksForSlot(date, pNum){
   return (cfg.automations||[])
-    .filter(a=>a.enabled && a.type==='class' && a.match==pNum && (a.where==='same'||!a.where))
+    .filter(a=>{
+      if(!a.enabled||!automationMatchesDate(a,date))return false;
+      if(a.type==='class')return a.where==='same'||!a.where ? Number(a.match)===pNum : false;
+      return a.where==='class'&&Number(a.targetPeriod)===pNum;
+    })
     .map(a=>({id:a.id, date:toDS(date), text:a.text, time:a.time}));
 }
 
-// Ghost tasks for lunch — type=class+where=lunch | type=weekday/letter+where=lunch
+// Ghost tasks routed to lunch
 function getAutoTasksForLunch(date){
-  const dow=date.getDay(), letter=getDayLetter(date);
-  return (cfg.automations||[]).filter(a=>{
-    if(!a.enabled || a.where!=='lunch') return false;
-    if(a.type==='class'){
-      // fires if that class is visible today
-      const vis=letter?getSlotsForLetter(letter):[];
-      return vis.includes(a.match);
-    }
-    if(a.type==='weekday') return a.match.includes(dow);
-    if(a.type==='letter')  return letter && a.match.includes(letter);
-    if(a.type==='date')    return dateAutomationMatches(date, a.match);
-    if(a.type==='keyword') return taskTextMatchesKeyword(date, a.match);
-    return false;
-  }).map(a=>({id:a.id, date:toDS(date), text:a.text, time:a.time}));
+  return (cfg.automations||[])
+    .filter(a=>a.enabled&&a.where==='lunch'&&automationMatchesDate(a,date))
+    .map(a=>({id:a.id, date:toDS(date), text:a.text, time:a.time}));
 }
 
-// Ghost tasks for after-school — type=class+where=after | weekday/letter+where=after
+// Ghost tasks routed to Extra Tasks
 function getAutoTasksForAfter(date){
-  const dow=date.getDay(), letter=getDayLetter(date);
-  return (cfg.automations||[]).filter(a=>{
-    if(!a.enabled) return false;
-    const w=a.where||'same';
-    // weekday/letter automations default to after if no where set
-    if(a.type==='weekday') return w==='after' && a.match.includes(dow);
-    if(a.type==='letter')  return w==='after' && letter && a.match.includes(letter);
-    if(a.type==='class')   return w==='after' && (letter?getSlotsForLetter(letter):[]).includes(a.match);
-    if(a.type==='date')    return w==='after' && dateAutomationMatches(date, a.match);
-    if(a.type==='keyword') return w==='after' && taskTextMatchesKeyword(date, a.match);
-    return false;
-  }).map(a=>({id:a.id, date:toDS(date), text:a.text, time:a.time}));
+  return (cfg.automations||[])
+    .filter(a=>a.enabled&&a.where==='after'&&automationMatchesDate(a,date))
+    .map(a=>({id:a.id, date:toDS(date), text:a.text, time:a.time}));
 }
 
 function getAutoTasksForFreeDay(date){

@@ -149,6 +149,12 @@
 
     /* ── Week grid ── */
     .app-body{display:flex;flex:1;overflow:hidden;flex-direction:column}
+    .view-toolbar{display:flex;align-items:center;padding:5px 12px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0}
+    .view-switch{display:inline-flex;gap:2px;padding:3px;border:1px solid var(--border);border-radius:10px;background:var(--surface2)}
+    .view-option{min-height:28px;padding:5px 12px;border:0;border-radius:7px;background:transparent;color:var(--ts);cursor:pointer;font:600 11px var(--f);white-space:nowrap;transition:background .15s,color .15s,box-shadow .15s}
+    .view-option:hover{color:var(--primary);background:rgba(26,115,232,.07)}
+    .view-option.active{background:var(--surface);color:var(--primary);box-shadow:var(--sh)}
+    .view-option:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
     .wgw{flex:1;overflow:auto}
     .wg{display:grid;grid-template-columns:repeat(7,minmax(140px,1fr));min-width:980px;height:100%}
     .dc{border-right:1px solid var(--border);display:flex;flex-direction:column}
@@ -180,7 +186,7 @@
     .dc.we .dcont{background:#fafafa}
 
     /* ── Slots ── */
-    .slot{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;box-shadow:var(--sh);transition:box-shadow .15s;animation:slide-up .25s cubic-bezier(.2,.8,.2,1) both}
+    .slot{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;box-shadow:var(--sh);transition:box-shadow .15s}
     .slot:hover{box-shadow:var(--shm)}
     .slot.lab{border-color:#fbbc04;border-width:2px}
     .slot-hd{display:flex;align-items:center;gap:5px;padding:5px 7px;cursor:pointer;user-select:none;min-width:0}
@@ -204,7 +210,7 @@
     .Off-tag{font-size:9px;padding:1px 5px;border-radius:7px;color:var(--ts);background:#e8eaed;flex-shrink:0;white-space:nowrap}
 
     /* lunch */
-    .lunch{background:linear-gradient(135deg,#e6f4ea,#f8f9fa);border:1px solid #c8e6c9;border-radius:var(--r);padding:5px 8px;text-align:center;animation:slide-up .25s cubic-bezier(.2,.8,.2,1) both}
+    .lunch{background:linear-gradient(135deg,#e6f4ea,#f8f9fa);border:1px solid #c8e6c9;border-radius:var(--r);padding:5px 8px;text-align:center}
     .lunch-label{font-size:10px;font-weight:700;color:var(--ok)}
     .lunch-time{font-size:9px;color:var(--ts);margin-top:1px}
     .lunch.collapsed .lunch-content{display:none}
@@ -212,7 +218,7 @@
     .lunch-chevron{font-size:10px;color:var(--ok);transition:transform .15s}
     .lunch.collapsed .lunch-chevron{transform:rotate(-90deg)}
     /* Extra Tasks */
-    .after{background:linear-gradient(135deg,#e8f0fe,#f8f9fa);border:1px solid #c5d9fb;border-radius:var(--r);padding:5px 7px;animation:slide-up .25s cubic-bezier(.2,.8,.2,1) both}
+    .after{background:linear-gradient(135deg,#e8f0fe,#f8f9fa);border:1px solid #c5d9fb;border-radius:var(--r);padding:5px 7px}
     .after-label{font-size:10px;font-weight:700;color:var(--primary);margin-bottom:4px;text-align:center}
     .after.collapsed .after-content{display:none}
     .after.collapsed .after-chevron{transform:rotate(-90deg)}
@@ -224,7 +230,7 @@
 
     /* tasks */
     .tklist{list-style:none;margin-bottom:5px}
-    .tki{display:flex;align-items:flex-start;gap:5px;padding:3px 0;border-bottom:1px solid var(--surface2);animation:slide-up .2s cubic-bezier(.2,.8,.2,1) both}
+    .tki{display:flex;align-items:flex-start;gap:5px;padding:3px 0;border-bottom:1px solid var(--surface2)}
     .tki:last-child{border-bottom:none}
     .tkc{width:13px;height:13px;border-radius:50%;border:2px solid var(--border);background:none;cursor:pointer;flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center;transition:all .15s}
     .tkc.done{background:var(--ok);border-color:var(--ok)}
@@ -274,9 +280,10 @@
     .timer-mode-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:14px}
     .timer-mode-tab{border:0;border-radius:7px;background:transparent;color:var(--ts);cursor:pointer;padding:7px 4px;font:600 11px var(--f);transition:all .2s}
     .timer-mode-tab.active{background:var(--surface);color:var(--primary);box-shadow:var(--sh)}
-    .timer-settings{display:flex;gap:8px;align-items:end;margin-bottom:12px;text-align:left}
-    .timer-settings .fg{flex:1;margin-bottom:0}
-    .timer-settings input{width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--r);font:600 13px var(--f);color:var(--text);background:var(--surface);outline:none}
+    .timer-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;align-items:end;margin-bottom:12px;text-align:left}
+    .timer-settings .fg{width:100%;min-width:0;margin-bottom:0}
+    .timer-settings input{width:100%;min-width:0;padding:7px 6px;border:1.5px solid var(--border);border-radius:var(--r);font:600 12px var(--f);color:var(--text);background:var(--surface);outline:none}
+    .timer-settings #timer-alarm-field{grid-column:1/-1}
     .timer-settings input:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(26,115,232,.1)}
     .time-setter input[type=time]{width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--r);font:600 13px var(--f);color:var(--text);background:var(--surface);outline:none}
     .time-setter input[type=time]:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(26,115,232,.1)}
@@ -368,6 +375,8 @@
       .ocard{padding:20px 12px}
       .app-header{padding:0 8px}
       .hr{gap:2px}
+      .view-toolbar{padding:4px 8px}
+      .view-option{padding:5px 9px;font-size:10px}
     }
 
     /* ── Auth Screen ── */
@@ -549,6 +558,13 @@
     </div>
   </header>
   <div class="app-body">
+    <div class="view-toolbar">
+      <div class="view-switch" role="group" aria-label="Schedule view">
+        <button class="view-option" type="button" data-view="week" onclick="setViewMode('week')" aria-pressed="false">Week</button>
+        <button class="view-option" type="button" data-view="centered" onclick="setViewMode('centered')" aria-pressed="false">Center today</button>
+        <button class="view-option" type="button" data-view="upcoming" onclick="setViewMode('upcoming')" aria-pressed="false">Today first</button>
+      </div>
+    </div>
     <div class="wgw"><div class="wg" id="wg"></div></div>
   </div>
 </div>
@@ -720,7 +736,7 @@
       <div class="timer-task" id="timer-task">No task selected</div>
       <div class="timer-display" id="timer-display">25:00</div>
       <div class="timer-settings" id="timer-settings">
-        <div class="fg"><label id="timer-minutes-label">Minutes</label><input id="timer-minutes" type="number" min="1" max="999" value="25" onchange="applyTimerSettings()"/></div>
+        <div class="fg" id="timer-duration-field"><label id="timer-minutes-label">Minutes</label><input id="timer-minutes" type="number" min="1" max="999" value="25" onchange="applyTimerSettings()"/></div>
         <div class="fg" id="timer-seconds-field"><label>Seconds</label><input id="timer-seconds" type="number" min="0" max="59" value="0" onchange="applyTimerSettings()"/></div>
         <div class="fg" id="timer-alarm-field" style="display:none">
           <label for="timer-alarm-time">Alarm time</label>
@@ -1167,7 +1183,7 @@ function getStorageKey(){
 }
 
 // ─── STATE ───────────────────────────────────────────────
-let cfg = { school:'early', periods:[], automations:[] };
+let cfg = { school:'early', periods:[], automations:[], viewMode:'week' };
 // automations: [{id, type:'class'|'weekday'|'letter', match:periodNum|[weekdayNums]|[letters], text, time, enabled}]
 
 let data = {
@@ -1181,6 +1197,7 @@ let data = {
 };
 
 let wkStart = null, dayModalDate = null, anchorPick = null;
+let centerDayColumnOnRender = false;
 let openSlotKeys = new Set();
 let expandedListKeys = new Set();
 let screenTransitionTimer = null;
@@ -1592,6 +1609,14 @@ function toggleLabDay(button){
     picks.slice(2).forEach(item => item.classList.remove('on'));
     toast('You can only have a double lab on up to 2 letter days.');
   }
+  persistPeriodForm(row);
+}
+
+function persistPeriodForm(row){
+  const list=row.closest('.plist');
+  if(!list)return;
+  collectP(list.id);
+  save();
 }
 
 function addPRow(listId,def,idx){
@@ -1649,11 +1674,13 @@ function toggleLabPill(pill){
       button.disabled = true;
     });
     syncLabRow(row);
+    persistPeriodForm(row);
     return;
   }
 
   pill.dataset.on = '1';
   syncLabRow(row);
+  persistPeriodForm(row);
 }
 
 function openColorPalette(button){
@@ -1721,13 +1748,23 @@ function collectP(listId){
 function launch(){
   showScreen('screen-app');
   updateUserPill();
-  wkStart=getWkStart(new Date());
+  wkStart=cfg.viewMode==='week'?getWkStart(new Date()):dateOnly(new Date());
+  centerDayColumnOnRender=cfg.viewMode==='centered';
   renderWeek();
   initSettings();
-  document.getElementById('prev-btn').onclick=()=>{wkStart=addDays(wkStart,-7);renderWeek()};
-  document.getElementById('next-btn').onclick=()=>{wkStart=addDays(wkStart,7);renderWeek()};
-  document.getElementById('today-btn').onclick=()=>{wkStart=getWkStart(new Date());renderWeek()};
+  document.getElementById('prev-btn').onclick=()=>{wkStart=addDays(wkStart,cfg.viewMode==='week'?-7:-1);renderWeek()};
+  document.getElementById('next-btn').onclick=()=>{wkStart=addDays(wkStart,cfg.viewMode==='week'?7:1);renderWeek()};
+  document.getElementById('today-btn').onclick=()=>{wkStart=cfg.viewMode==='week'?getWkStart(new Date()):dateOnly(new Date());renderWeek()};
   document.getElementById('set-btn').onclick=openSettings;
+}
+
+function setViewMode(mode){
+  if(!['week','centered','upcoming'].includes(mode))return;
+  cfg.viewMode=mode;
+  wkStart=mode==='week'?getWkStart(new Date()):dateOnly(new Date());
+  centerDayColumnOnRender=mode==='centered';
+  save();
+  renderWeek();
 }
 
 function captureOpenSlotKeys(){
@@ -1755,10 +1792,17 @@ function renderWeek(){
   const grid=document.getElementById('wg');
   grid.innerHTML='';
   const today=dateOnly(new Date());
-  document.getElementById('wklabel').textContent=fmtWk(wkStart);
+  const viewMode=['centered','upcoming'].includes(cfg.viewMode)?cfg.viewMode:'week';
+  const viewStart=viewMode==='centered'?addDays(wkStart,-3):wkStart;
+  document.getElementById('wklabel').textContent=fmtWk(viewStart);
+  document.querySelectorAll('.view-option').forEach(button=>{
+    const active=button.dataset.view===viewMode;
+    button.classList.toggle('active',active);
+    button.setAttribute('aria-pressed',String(active));
+  });
 
   for(let i=0;i<7;i++){
-    const date=addDays(wkStart,i);
+    const date=addDays(viewStart,i);
     const isWknd=WE.has(date.getDay());
     const isToday=date.getTime()===today.getTime();
     const ds=toDS(date);
@@ -1921,6 +1965,16 @@ function renderWeek(){
   }
 
   restoreOpenSlotKeys();
+  if(centerDayColumnOnRender){
+    const wrapper=grid.parentElement;
+    const centerColumn=grid.children[3];
+    if(wrapper&&centerColumn){
+      const wrapperRect=wrapper.getBoundingClientRect();
+      const columnRect=centerColumn.getBoundingClientRect();
+      wrapper.scrollLeft+=columnRect.left+columnRect.width/2-wrapperRect.left-wrapper.clientWidth/2;
+    }
+    centerDayColumnOnRender=false;
+  }
 }
 
 // ─── BUILD SLOT ───────────────────────────────────────────
@@ -1987,6 +2041,7 @@ function buildSlot(ds, pNum, slotPos, letter){
         <div class="sp" style="background:${tagColor}">P${pNum} 🔬</div>
         <div class="Off-tag" style="margin-left:auto">cont.</div>
       </div>
+      <div class="sm">🕐 ${bell(slotPos+1)} · Lab continuation</div>
     `;
     return [el1, el2];
   } else {
@@ -2478,7 +2533,7 @@ function renderCalendar(){
   title.textContent=`${monthNames[calendarMonth.getMonth()]} ${calendarMonth.getFullYear()}`; grid.innerHTML='';
   SHORT.forEach(day=>{const h=document.createElement('div');h.className='calendar-weekday';h.textContent=day;grid.appendChild(h);});
   const first=new Date(calendarMonth.getFullYear(),calendarMonth.getMonth(),1); const start=new Date(first); start.setDate(1-first.getDay());
-  for(let i=0;i<42;i++){const d=addDays(start,i), b=document.createElement('button'); const ds=toDS(d); b.className='calendar-day'+(d.getMonth()!==calendarMonth.getMonth()?' muted ':'')+(ds===toDS(new Date())?' today':'')+(wkStart&&ds===toDS(wkStart)?' selected':''); b.textContent=d.getDate(); b.title=`Open week of ${ds}`; b.onclick=()=>{wkStart=getWkStart(d);renderWeek();closeMod('calmod');}; grid.appendChild(b);}
+  for(let i=0;i<42;i++){const d=addDays(start,i), b=document.createElement('button'); const ds=toDS(d); b.className='calendar-day'+(d.getMonth()!==calendarMonth.getMonth()?' muted ':'')+(ds===toDS(new Date())?' today':'')+(wkStart&&ds===toDS(wkStart)?' selected':''); b.textContent=d.getDate(); b.title=`Open schedule from ${ds}`; b.onclick=()=>{wkStart=cfg.viewMode==='week'?getWkStart(d):dateOnly(d);centerDayColumnOnRender=cfg.viewMode==='centered';renderWeek();closeMod('calmod');}; grid.appendChild(b);}
 }
 
 function openTimer(){
@@ -2490,6 +2545,7 @@ function syncTimerInputs(){
   document.getElementById('timer-minutes').value=Math.max(0,Math.floor(timerSeconds/60));
   document.getElementById('timer-seconds').value=Math.max(0,timerSeconds%60);
   document.getElementById('timer-alarm-time').value=timerAlarmAt;
+  document.getElementById('timer-duration-field').style.display=timerMode==='alarm'?'none':'';
   document.getElementById('timer-seconds-field').style.display=timerMode==='alarm'?'none':'';
   document.getElementById('timer-alarm-field').style.display=timerMode==='alarm'?'':'none';
   document.getElementById('timer-minutes-label').textContent=timerMode==='stopwatch'?'Starting minutes':'Minutes';

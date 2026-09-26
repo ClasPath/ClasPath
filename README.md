@@ -6,7 +6,7 @@ An AI-powered weekly school planner for Freehold Regional High School District s
 
 - **Device-local storage** — everything saves to your browser's localStorage. Each laptop/phone keeps its own data. Works offline after first load.
 - **Freehold Regional High School District 7-Day Rotating Block Schedule** — auto-calculates Day 1–7 for every school day. Click any Day badge to manually correct it if needed (e.g. after a holiday).
-- **Weekly view** — Google Tasks-style Sun–Sat columns. Navigate any week past or future with the arrow buttons.
+- **Flexible calendar views** — choose a Sunday–Saturday week, a seven-day view centered on today, or a seven-day view starting today. Navigate by week or day, depending on the selected view.
 - **Per-class task lists** — tap a class card to expand it, then add/check off/delete homework tasks.
 - **Weekend reminder cards** — free-day cards on Saturday and Sunday for general reminders.
 - **Day number override** — click any **Day X** badge in the week header to manually set that day's block number. The rest of the week recalculates from your choice. A ✎ shows when overridden; tap "Auto" to revert.

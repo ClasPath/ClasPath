@@ -119,14 +119,14 @@
     .dpb.auto-btn{border-style:dashed;font-size:11px}
 
     /* ── App header ── */
-    .app-header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 12px;height:52px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;box-shadow:0 1px 3px rgba(0,0,0,.08);z-index:10;gap:8px}
+    .app-header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 12px;min-height:52px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;box-shadow:0 1px 3px rgba(0,0,0,.08);z-index:10;gap:8px}
     .hl{display:flex;align-items:center;gap:8px;min-width:0;flex:1}
     .hls{display:flex;align-items:center;gap:7px;flex-shrink:0}
     .hls svg{width:26px;height:26px}
     .hln{font-size:15px;font-weight:800;color:var(--text);letter-spacing:-.3px;white-space:nowrap}
     .hln span{color:var(--primary)}
     .hwk{font-size:12px;color:var(--ts);background:var(--surface2);padding:3px 10px;border-radius:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-    .hr{display:flex;align-items:center;gap:4px;flex-shrink:0}
+    .hr{display:flex;align-items:center;gap:4px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
     .wnb{width:28px;height:28px;border-radius:50%;border:1px solid var(--border);background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--ts);transition:all .2s;flex-shrink:0}
     .wnb:hover{background:var(--surface2)}
     .tdb{padding:5px 10px;border-radius:20px;border:1px solid var(--border);background:none;cursor:pointer;font-size:12px;font-family:var(--f);color:var(--ts);transition:all .2s;white-space:nowrap}
@@ -149,7 +149,6 @@
 
     /* ── Week grid ── */
     .app-body{display:flex;flex:1;overflow:hidden;flex-direction:column}
-    .view-toolbar{display:flex;align-items:center;padding:5px 12px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0}
     .view-switch{display:inline-flex;gap:2px;padding:3px;border:1px solid var(--border);border-radius:10px;background:var(--surface2)}
     .view-option{min-height:28px;padding:5px 12px;border:0;border-radius:7px;background:transparent;color:var(--ts);cursor:pointer;font:600 11px var(--f);white-space:nowrap;transition:background .15s,color .15s,box-shadow .15s}
     .view-option:hover{color:var(--primary);background:rgba(26,115,232,.07)}
@@ -288,6 +287,8 @@
     .time-setter input[type=time]{width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--r);font:600 13px var(--f);color:var(--text);background:var(--surface);outline:none}
     .time-setter input[type=time]:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(26,115,232,.1)}
     .task-time-picker{position:fixed;z-index:300;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shm);padding:10px;width:min(250px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow:visible;animation:pop-in .16s ease both}
+    .timer-number-picker .task-time-dropdown-menu{max-height:min(132px,calc(100vh - 120px))}
+    .timer-number-picker .task-time-option{padding:4px 6px;font-size:11px}
     .task-time-picker-title{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--ts);margin-bottom:7px}
     .task-time-picker-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
     .task-time-dropdown{position:relative;min-width:0}
@@ -319,6 +320,7 @@
     .timer-task{font-size:12px;color:var(--ts);min-height:18px}
     .timer-actions{display:flex;gap:8px;justify-content:center}
     .timer-actions .btn{min-width:82px}
+    .timer-close-btn{width:100%}
     .task-tools{display:flex;align-items:center;gap:2px;flex-shrink:0}
     .task-time{font-size:10px;color:var(--primary);font-weight:700;white-space:nowrap;flex-shrink:0}
     .task-settings-btn{border:0;background:none;color:var(--ts);cursor:pointer;padding:2px 3px;font-size:14px;opacity:.75;transition:color .2s,transform .2s}
@@ -375,7 +377,9 @@
       .ocard{padding:20px 12px}
       .app-header{padding:0 8px}
       .hr{gap:2px}
-      .view-toolbar{padding:4px 8px}
+      .app-header{flex-wrap:wrap;padding:6px 8px}
+      .hl{flex-basis:100%}
+      .hr{width:100%;justify-content:space-between}
       .view-option{padding:5px 9px;font-size:10px}
     }
 
@@ -544,6 +548,11 @@
       <button class="wnb" id="prev-btn">‹</button>
       <button class="tdb" id="today-btn">Today</button>
       <button class="wnb" id="next-btn">›</button>
+      <div class="view-switch" role="group" aria-label="Schedule view">
+        <button class="view-option" type="button" data-view="week" onclick="setViewMode('week')" aria-label="Week view" aria-pressed="false">Week</button>
+        <button class="view-option" type="button" data-view="centered" onclick="setViewMode('centered')" aria-label="Center today" aria-pressed="false">Center today</button>
+        <button class="view-option" type="button" data-view="upcoming" onclick="setViewMode('upcoming')" aria-label="Today first" aria-pressed="false">Today first</button>
+      </div>
       <button class="icb calendar-btn" title="Open calendar" onclick="openCalendar()">▦</button>
       <button class="icb" title="Focus timer" onclick="openTimer()">◷</button>
       <button class="active-timer" id="active-timer" title="Open active timer" onclick="openTimer()"><span class="active-timer-dot"></span><span id="active-timer-label">00:00</span></button>
@@ -558,13 +567,6 @@
     </div>
   </header>
   <div class="app-body">
-    <div class="view-toolbar">
-      <div class="view-switch" role="group" aria-label="Schedule view">
-        <button class="view-option" type="button" data-view="week" onclick="setViewMode('week')" aria-pressed="false">Week</button>
-        <button class="view-option" type="button" data-view="centered" onclick="setViewMode('centered')" aria-pressed="false">Center today</button>
-        <button class="view-option" type="button" data-view="upcoming" onclick="setViewMode('upcoming')" aria-pressed="false">Today first</button>
-      </div>
-    </div>
     <div class="wgw"><div class="wg" id="wg"></div></div>
   </div>
 </div>
@@ -745,7 +747,7 @@
       </div>
       <div class="timer-actions"><button class="btn bp" id="timer-toggle" onclick="toggleTimer()">Start</button><button class="btn bs" onclick="pauseTimer()">Pause</button><button class="btn bs" onclick="resetTimer()">Reset</button></div>
     </div>
-    <div class="mda"><button class="btn bs" onclick="closeMod('timermod')">Close</button></div>
+    <div class="mda"><button class="btn bs timer-close-btn" onclick="closeMod('timermod')">Close</button></div>
   </div>
 </div>
 
@@ -2041,7 +2043,7 @@ function buildSlot(ds, pNum, slotPos, letter){
         <div class="sp" style="background:${tagColor}">P${pNum} 🔬</div>
         <div class="Off-tag" style="margin-left:auto">cont.</div>
       </div>
-      <div class="sm">🕐 ${bell(slotPos+1)} · Lab continuation</div>
+      <div class="sm">🕐 ${bell(slotPos+1)} · Lab </div>
     `;
     return [el1, el2];
   } else {
@@ -2346,7 +2348,7 @@ function bindAutomationTimePicker(){
 function openTimerNumberPicker(input,title,min,max){
   closeTaskTimePicker();
   const picker=document.createElement('div');
-  picker.className='task-time-picker';
+  picker.className='task-time-picker timer-number-picker';
   const options=Array.from({length:max-min+1},(_,index)=>{const value=min+index;return {value:String(value),label:String(value).padStart(2,'0')};});
   picker.innerHTML=`<div class="task-time-picker-title">${title}</div><div class="task-time-dropdown open" data-part="value"><button class="task-time-dropdown-button" type="button">${input.value}</button><div class="task-time-dropdown-menu">${options.map(option=>`<button class="task-time-option${option.value===input.value?' selected':''}" type="button" data-value="${option.value}">${option.label}</button>`).join('')}</div></div>`;
   document.body.appendChild(picker);

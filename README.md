@@ -1,13 +1,15 @@
 # Freehold Regional High School District School Planner
 
-An AI-powered weekly school planner for Freehold Regional High School District students. Single-file, runs entirely in the browser via GitHub Pages. **Each device saves its own data** — no accounts, no server, no sign-in.
+A school planner for Freehold Regional High School District students. The app is a single file that runs in the browser and can be deployed with GitHub Pages. Data is saved on the device; signing in also enables cloud sync.
 
 ## Features
 
 - **Device-local storage** — everything saves to your browser's localStorage. Each laptop/phone keeps its own data. Works offline after first load.
 - **Freehold Regional High School District 7-Day Rotating Block Schedule** — auto-calculates Day 1–7 for every school day. Click any Day badge to manually correct it if needed (e.g. after a holiday).
-- **Flexible calendar views** — choose a Sunday–Saturday week, a seven-day view centered on today, or a seven-day view starting today. Navigate by week or day, depending on the selected view.
+- **Flexible calendar views** — choose a Sunday–Saturday week, a rolling seven-day view centered on today, or a rolling seven-day view starting today. Your selected view is saved. Navigate by week or day, depending on the selected view.
 - **Per-class task lists** — tap a class card to expand it, then add/check off/delete homework tasks.
+- **Double labs** — configure a class as a double lab on up to two available letter days. The lab occupies consecutive schedule blocks, displays the correct continuation time for the selected school schedule, and saves with your class settings.
+- **Focus timer** — use a countdown timer, stopwatch, or alarm at a selected time.
 - **Weekend reminder cards** — free-day cards on Saturday and Sunday for general reminders.
 - **Day number override** — click any **Day X** badge in the week header to manually set that day's block number. The rest of the week recalculates from your choice. A ✎ shows when overridden; tap "Auto" to revert.
 - **SVG logo** — book icon with a rotating day badge.
@@ -29,13 +31,11 @@ An AI-powered weekly school planner for Freehold Regional High School District s
 
 ## How data is stored
 
-All data lives in **`localStorage`** in your browser under the key `frhsd_planner_v3`.
+Planner settings and schedule data are saved in browser `localStorage` under `frhsd_v5` (with a separate key for each signed-in account).
 
-- If you clear your browser's site data or use a different browser, your data will be gone.
-- Different laptops/devices each start fresh with their own data.
-- There is no sync between devices — this is by design.
-
-To back up your data: open browser DevTools → Application → Local Storage → copy the value.
+- Guest data stays in that browser on that device. Clearing site data or switching browsers removes access to it.
+- Signing in enables cloud sync between devices. Keep using the same account to access its synced data.
+- Back up local data in browser DevTools under Application → Local Storage by copying the `frhsd_v5` value for the active user.
 
 ---
 

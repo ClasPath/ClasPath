@@ -167,7 +167,7 @@
     .dc.we .dh{background:#fafafa}
     .dn{font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--ts)}
     .dd{font-size:19px;font-weight:400;color:var(--text);margin-top:1px;line-height:1.2}
-    .dh.today .dd{background:var(--primary);color:#fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;margin:2px auto 0;font-size:13px;font-weight:700}
+    .dh.today .dd{background:var(--primary);color:#fff;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;margin:2px auto 0;font-size:15px;font-weight:700}
     .dbb{margin-top:2px;font-size:10px;font-weight:700;color:var(--primary);background:var(--pl);display:inline-block;padding:1px 7px;border-radius:9px;cursor:pointer;transition:background .15s}
     .dbb:hover{background:#c5d9fb}
     .dbb.ov{background:#fef3cd;color:#92400e}
@@ -2863,10 +2863,9 @@ function selectAutomationDate(dateString){
 
 function saveAutomationChanges(){
   save();
-  if(!supaUser)return;
-  clearTimeout(syncTimer);
-  syncTimer=null;
-  syncToCloud();
+  // save() already calls scheduleSyncToCloud() which debounces the cloud push.
+  // No need to bypass the debounce here — that would risk cancelling a pending
+  // sync from another in-flight change.
 }
 
 function setAutoType(t){

@@ -481,14 +481,17 @@
     /* ── Toast ── */
     #toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%) translateY(60px);background:var(--toast-bg);color:var(--toast-text);padding:8px 16px;border-radius:7px;font-size:13px;z-index:9999;transition:transform .22s;pointer-events:none;white-space:nowrap;box-shadow:var(--shm)}
     #toast.show{transform:translateX(-50%) translateY(0)}
-    .term-tab{position:fixed;left:0;top:50%;transform:translateY(-50%);z-index:240;display:none;background:var(--surface);border:1px solid var(--border);border-left:none;border-radius:0 10px 10px 0;box-shadow:var(--shm);padding:12px 7px;font:700 13px var(--f);color:var(--primary);cursor:pointer;writing-mode:vertical-rl;letter-spacing:1px}
-    .term-tab:hover{background:var(--pl)}
-    .term-panel{display:none;position:fixed;left:0;top:0;bottom:0;width:min(560px,100vw);z-index:250;background:var(--surface);border-right:1px solid var(--border);box-shadow:4px 0 20px rgba(0,0,0,.18);flex-direction:column}
-    .term-panel.open{display:flex}
+    .term-btn-top .icon{width:15px;height:15px}
+    .term-btn-top:hover{color:var(--primary);background:var(--pl)}
+    .term-btn-top.active{color:var(--primary);background:var(--pl)}
+    .term-panel{display:flex;position:fixed;left:0;top:0;bottom:0;width:min(560px,100vw);z-index:250;background:var(--surface);border-right:1px solid var(--border);box-shadow:4px 0 20px rgba(0,0,0,.18);flex-direction:column;transform:translateX(-100%);visibility:hidden;pointer-events:none;transition:transform .25s cubic-bezier(.2,.8,.2,1),visibility 0s linear .25s}
+    .term-panel.open{transform:translateX(0);visibility:visible;pointer-events:auto;transition:transform .25s cubic-bezier(.2,.8,.2,1),visibility 0s}
     .term-head{display:flex;align-items:center;gap:6px;padding:10px 12px;border-bottom:1px solid var(--border);background:var(--surface2)}
     .term-title{flex:1;font:700 13px var(--f);color:var(--text)}
-    .term-btn{border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:7px;min-width:28px;height:28px;cursor:pointer;font:700 12px var(--f)}
+    .term-btn{border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:7px;min-width:28px;height:28px;cursor:pointer;font:700 12px var(--f);transition:background .15s,color .15s,border-color .15s}
     .term-btn:hover{background:var(--pl);color:var(--primary)}
+    .term-btn-clear{color:var(--ts);border-style:dashed;font-weight:600}
+    .term-btn-clear:hover{background:var(--surface2);border-color:var(--ts);color:var(--text)}
     .term-out{flex:1;overflow-y:auto;padding:12px;background:var(--bg);font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--text);white-space:pre-wrap;word-break:break-word}
     .term-line{margin:0 0 4px}
     .term-line.err{color:var(--danger)}
@@ -747,6 +750,7 @@
         <span class="sync-dot" id="sync-dot"></span>
         <span id="user-pill-label">…</span>
       </div>
+      <button class="icb term-btn-top" id="term-tab" title="Command terminal" aria-label="Command terminal" onclick="termToggle()"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 9l3 3-3 3M12.5 15H17"/></svg></button>
       </div>
     </div>
   </header>
@@ -985,13 +989,11 @@
   </div>
 </div>
 
-<div class="term-tab" id="term-tab" title="Open command terminal" onclick="termToggle()">&gt;_</div>
 <div class="term-panel" id="term-panel">
   <div class="term-head">
     <span class="term-title">ClasPath terminal</span>
     <button class="term-btn" type="button" title="All commands" onclick="termHelp()">?</button>
-    <button class="term-btn" type="button" title="Clear output" onclick="termClear()">x</button>
-    <button class="term-btn" type="button" title="Close terminal" onclick="termToggle()">×</button>
+    <button class="term-btn term-btn-clear" type="button" title="Clear terminal output" onclick="termClear()">x</button>
   </div>
   <div class="term-out" id="term-out"></div>
   <form class="term-in-row" onsubmit="event.preventDefault();termSubmit()">
@@ -1626,10 +1628,11 @@ function updateThemeButton(){
 // ── Screen helper ──────────────────────────────────────
 function showScreen(id){
   const termTab=document.getElementById('term-tab');
-  if(termTab) termTab.style.display=id==='screen-app'?'block':'none';
+  if(termTab) termTab.style.display=id==='screen-app'?'':'none';
   if(id!=='screen-app'){
     const termPanel=document.getElementById('term-panel');
     if(termPanel) termPanel.classList.remove('open');
+    if(termTab) termTab.classList.remove('active');
   }
   const current = document.querySelector('.screen.active');
   const next = document.getElementById(id);
@@ -2060,7 +2063,7 @@ function getDayTaskSummary(ds){
   const off=isDayOff(date);
   const letter=getDayLetter(date);
   const isWknd=WE.has(date.getDay());
-  const homeworkMode=off && (!isWknd || !!data.dayOff[ds]);
+  const homeworkMode=off && !isWknd;
   let total = 0;
   let pending = 0;
 
@@ -2183,16 +2186,12 @@ function setDayState(ds, makeOff){
   const isWknd=WE.has(date.getDay());
 
   if(isWknd){
-    const currentlyHomework=!!data.dayOff[ds];
-    if(makeOff === currentlyHomework) return;
-    if(makeOff) data.dayOff[ds]=true;
-    else {
-      delete data.dayOff[ds];
-      const freeKey=`${ds}-free`;
-      if(Array.isArray(data.freeTasks[freeKey])) data.freeTasks[freeKey].sort((a,b)=>(a.classNum||99)-(b.classNum||99));
-    }
+    if(!data.dayOff[ds])return;
+    delete data.dayOff[ds];
     delete data.dayOn[ds];
-    logTaskEvent('day_mode',makeOff?'Homework':'Weekend',{where:ds});
+    const freeKey=`${ds}-free`;
+    if(Array.isArray(data.freeTasks[freeKey])) data.freeTasks[freeKey].sort((a,b)=>(a.classNum||99)-(b.classNum||99));
+    logTaskEvent('day_mode','Weekend',{where:ds});
     save(); renderWeek();
     return;
   }
@@ -2635,8 +2634,8 @@ function renderWeek(){
     const letter=getDayLetter(date);
     const ov=data.dayOv[ds]!=null;
     const off=isDayOff(date);
-    const weekendActive=isWknd&&!data.dayOff[ds];
-    const homeworkActive=off&&!weekendActive;
+    const weekendActive=isWknd;
+    const homeworkActive=!isWknd&&off;
     const daySummary=getDayTaskSummary(ds);
 
     const col=document.createElement('div');
@@ -2659,10 +2658,7 @@ function renderWeek(){
     const beachSVG=`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.3c2.4-1.6 4.8-2.4 9-2.4 4.1 0 6.6.8 9 2.4V19H3v-1.7zm1.9-4.2h13.4v1.5H4.9v-1.5zm2.5-3.9h8.1c.7 0 1.3.6 1.3 1.3v.4H6.1v-.4c0-.7.6-1.3 1.3-1.3zm1.5 1.4h5.1c.2 0 .4.1.4.4v.4H8.5v-.4c0-.3.2-.4.4-.4zm-1.7 5.7h8.6v1.1H7.2v-1.1z"/></svg>`;
     const bookSVG=`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12a2 2 0 0 1 2 2v18l-8-4-8 4V4a2 2 0 0 1 2-2zm2 4v2h8V6H8zm0 4v2h8v-2H8z"/></svg>`;
     const toggleHtml=isWknd
-      ? `<div class="day-toggle">
-          <button class="dt-weekend${weekendActive?' active':''}" onclick="setDayState('${ds}',false)" title="Weekend" aria-label="Weekend">${beachSVG}</button>
-          <button class="dt-homework${homeworkActive?' active':''}" onclick="setDayState('${ds}',true)" title="Homework" aria-label="Homework">${bookSVG}</button>
-        </div>`
+      ? ''
       : `<div class="day-toggle">
           <button class="dt-school${!off?' active':''}" onclick="setDayState('${ds}',false)" title="School day" aria-label="School day">${schoolSVG}</button>
           <button class="dt-homework${off?' active':''}" onclick="setDayState('${ds}',true)" title="Homework" aria-label="Homework">${bookSVG}</button>
@@ -2678,7 +2674,7 @@ function renderWeek(){
     if(!off && letter) cont.appendChild(morningCard(ds));
 
     if(off){
-      if(isWknd && !data.dayOff[ds]) cont.appendChild(freeCard(ds, `${svgIcon('sun','icon-sm')} Weekend`));
+      if(isWknd) cont.appendChild(freeCard(ds, `${svgIcon('sun','icon-sm')} Weekend`));
       else {
         [...cfg.periods].sort((a,b)=>a.num-b.num).forEach(p=>cont.appendChild(homeworkClassCard(ds,p)));
         cont.appendChild(homeworkExtraCard(ds));
@@ -4296,6 +4292,8 @@ function termToggle(){
   const panel=document.getElementById('term-panel');
   if(!panel)return;
   const open=panel.classList.toggle('open');
+  const tab=document.getElementById('term-tab');
+  if(tab)tab.classList.toggle('active',open);
   if(open){const input=document.getElementById('term-input');if(input)input.focus();}
 }
 function termClear(){
@@ -4311,7 +4309,8 @@ function termHelp(){
     '  targets: P1–P7, free, after, morning, lunch',
     '',
     'ITEMS',
-    '  list <date> [target]  ·  done <date> <target> <#|text>',
+    '  tasks [all|open|done]  ·  list <date> [target]',
+    '  done <date> <target> <#|text>',
     '  edit <date> <target> <#|text> New text [at HH:MM]  ·  del <date> <target> <#|text>',
     '  focus <date> <target> <#|text>  ·  open|close <date> <target>',
     '  undo  ·  redo  ·  save  ·  sync  ·  clear  ·  clearall  ·  signout',
@@ -4509,6 +4508,28 @@ function termListDate(ds){
   const summary=getDayTaskSummary(ds);
   termPrint(`  ${summary.pending} pending / ${summary.total} total`,'dim');
 }
+function termListAll(filter){
+  const groups=[];
+  Object.entries(data.tasks||{}).forEach(([key,items])=>{
+    if(!Array.isArray(items))return;
+    const parts=key.split('_');
+    const ds=parts[0];
+    const label=parts[1]?'P'+parts[1]:'class';
+    items.forEach((item,i)=>groups.push({ds,label,n:i+1,item,key}));
+  });
+  Object.entries(data.freeTasks||{}).forEach(([key,items])=>{
+    if(!Array.isArray(items))return;
+    const parts=key.split('-');
+    const ds=parts.slice(0,3).join('-');
+    const label=parts.slice(3).join('-')||'free';
+    items.forEach((item,i)=>groups.push({ds,label,n:i+1,item,key}));
+  });
+  groups.sort((a,b)=>a.ds.localeCompare(b.ds)||a.label.localeCompare(b.label)||a.n-b.n);
+  const shown=filter==='open'?groups.filter(g=>!g.item.done):filter==='done'?groups.filter(g=>g.item.done):groups;
+  if(!shown.length){termPrint('No tasks found','dim');return;}
+  shown.forEach(g=>termPrint(`${g.ds} ${g.label} #${g.n} [${g.item.done?'x':' '}] ${g.item.text}${g.item.time?' @ '+formatClockTime(g.item.time):''}${g.item.classNum?' · P'+g.item.classNum:''}`,g.item.done?'dim':''));
+  termPrint(`${shown.length} of ${groups.length} tasks`,'dim');
+}
 function termFindItem(ds,target,ref){
   const store=termStoreFor(target);
   const items=store[target.key]||[];
@@ -4680,7 +4701,18 @@ async function termRun(raw){
   if(cmd==='add'){termAddFromTokens(rest);return;}
   if(termLooksLikeDate(cmd)){termAddFromTokens(tokens);return;}
   switch(cmd){
+    case 'tasks':{
+      const filter=(rest[0]||'all').toLowerCase();
+      if(!['all','open','done','pending'].includes(filter))throw new Error('Usage: tasks [all|open|done]');
+      termListAll(filter==='pending'?'open':filter);
+      return;
+    }
     case 'list':{
+      const first=(rest[0]||'all').toLowerCase();
+      if(['all','open','done','pending'].includes(first)){
+        termListAll(first==='pending'?'open':first);
+        return;
+      }
       if(!rest.length)throw new Error('Usage: list <date> [target]');
       const ds=termParseDate(rest[0]);
       if(!ds)throw new Error('Invalid date: '+rest[0]);
@@ -4819,9 +4851,10 @@ async function termRun(raw){
       const ds=termParseDate(rest[0]);
       if(!ds)throw new Error('Invalid date: '+rest[0]);
       const makeOff=cmd==='off'||cmd==='homework';
+      const isWknd=WE.has(new Date(ds+'T12:00:00').getDay());
       recordHistory();
       setDayState(ds,makeOff);
-      termPrint(`${ds} is now ${makeOff?'a homework day':'a school day'}`,'ok');
+      termPrint(`${ds} is ${isWknd?'always a weekend day':makeOff?'a homework day':'a school day'}`,'ok');
       return;
     }
     case 'goto':{

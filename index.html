@@ -241,10 +241,10 @@
     /* school/day-off toggle pill */
     .day-toggle{margin-top:3px;display:inline-flex;align-items:center;gap:0;border-radius:9px;overflow:hidden;border:1px solid var(--border);font-size:9px;font-weight:700}
     .day-toggle button{padding:3px 7px;border:none;cursor:pointer;font-size:10px;font-weight:700;font-family:var(--f);transition:background .15s;line-height:1;display:flex;align-items:center;justify-content:center}
-    .day-toggle button svg{width:11px;height:11px;display:block;fill:currentColor}
+    .day-toggle button svg{width:11px;height:11px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
     .day-toggle .dt-school{background:var(--pl);color:var(--primary)}
-    .day-toggle .dt-weekend,.day-toggle .dt-homework{background:var(--surface2);color:var(--ts)}
-    .day-toggle .dt-school.active,.day-toggle .dt-weekend.active,.day-toggle .dt-homework.active{background:var(--primary);color:var(--on-primary)}
+    .day-toggle .dt-weekend,.day-toggle .dt-dayoff{background:var(--surface2);color:var(--ts)}
+    .day-toggle .dt-school.active,.day-toggle .dt-weekend.active,.day-toggle .dt-dayoff.active{background:var(--primary);color:var(--on-primary)}
     .dcont{flex:1;padding:4px;display:flex;flex-direction:column;gap:4px;overflow-y:auto}
     .dc.we .dcont{background:var(--surface-we)}
 
@@ -407,6 +407,7 @@
     .task-tools{display:flex;align-items:center;gap:2px;flex-shrink:0}
     .task-time{font-size:10px;color:var(--primary);font-weight:700;white-space:nowrap;flex-shrink:0}
     .task-class{font-size:9px;font-weight:700;color:var(--primary);background:var(--pl);border-radius:6px;padding:1px 5px;white-space:nowrap;flex-shrink:0;max-width:120px;overflow:hidden;text-overflow:ellipsis}
+    .slot.dayoff .task-class{display:none}
     .task-settings-btn{border:0;background:none;color:var(--ts);cursor:pointer;padding:2px 3px;font-size:14px;opacity:.75;transition:color .2s,transform .2s}
     .task-settings-btn:hover{color:var(--primary);transform:rotate(25deg)}
     .task-action-list{display:flex;flex-direction:column;gap:7px;margin-top:14px}
@@ -1767,7 +1768,7 @@ let data = {
   autoDone:{},     // "YYYY-MM-DD:autoId" → true for completed automation occurrences
   dayModes:{},     // reversible school/free task placement snapshots by date
   dayOv:{},        // "YYYY-MM-DD" → "A".."G"
-  dayOff:{},       // "YYYY-MM-DD" → true  (explicit homework override)
+  dayOff:{},       // "YYYY-MM-DD" → true  (explicit day-off override)
   dayOn:{},        // legacy explicit school-day override (kept for older saved data)
   taskHistory:[],  // recent task, focus, and schedule activity
   deletedIds:{},
@@ -1847,8 +1848,9 @@ function describeTaskKey(key){
   }
   const freeMatch=String(key).match(/^(\d{4}-\d{2}-\d{2})-(free|lunch|morning|after)$/);
   if(freeMatch){
-    const label={free:'Homework',lunch:'Lunch',morning:'Morning Tasks',after:'Extra Tasks'}[freeMatch[2]]||freeMatch[2];
-    return `${freeMatch[1]} · ${label}`;
+    const freeDate=new Date(`${freeMatch[1]}T12:00:00`);
+    const labels={free:WE.has(freeDate.getDay())?'Weekend':'Day Off',lunch:'Lunch',morning:'Morning Tasks',after:'Extra Tasks'};
+    return `${freeMatch[1]} · ${labels[freeMatch[2]]||freeMatch[2]}`;
   }
   return String(key);
 }
@@ -2058,12 +2060,12 @@ function svgIcon(name,cls=''){
   return `<svg class="${className}" viewBox="0 0 24 24" aria-hidden="true">${ICON_PATHS[name]||ICON_PATHS.check}</svg>`;
 }
 
-// ─── HOMEWORK DAY HELPERS ────────────────────────────────
-// Weekends are always homework days; weekdays become homework only when explicitly marked.
+// ─── DAY OFF HELPERS ────────────────────────────────────
+// Weekends are always days off; weekdays become days off only when explicitly marked.
 function isDayOff(date){
   const ds=toDS(dateOnly(date));
-  if(WE.has(date.getDay())) return true;           // weekends are always homework days
-  return !!data.dayOff[ds];                        // explicit homework override
+  if(WE.has(date.getDay())) return true;           // weekends are always days off
+  return !!data.dayOff[ds];                        // explicit day-off override
 }
 
 function getTaskStatsForList(list){
@@ -2074,11 +2076,10 @@ function getTaskStatsForList(list){
 }
 
 function getDayTaskSummary(ds){
+  consolidateDayOffTasks(ds);
   const date=new Date(ds+'T12:00:00');
   const off=isDayOff(date);
   const letter=getDayLetter(date);
-  const isWknd=WE.has(date.getDay());
-  const homeworkMode=off && !isWknd;
   let total = 0;
   let pending = 0;
 
@@ -2091,9 +2092,9 @@ function getDayTaskSummary(ds){
     });
   }
 
-  const visibleFreeKeys = homeworkMode
-    ? [`${ds}-free`,`${ds}-after`]
-    : (!off && letter)
+  const visibleFreeKeys = off
+    ? [`${ds}-free`]
+    : letter
       ? [`${ds}-lunch`,`${ds}-morning`,`${ds}-after`]
       : [`${ds}-free`];
   visibleFreeKeys.forEach(key => {
@@ -2103,10 +2104,9 @@ function getDayTaskSummary(ds){
   });
 
   const automationItems = [];
-  if(homeworkMode){
-    for(let pNum=1;pNum<=7;pNum++) automationItems.push(...getAutoTasksForSlot(date,pNum));
-    automationItems.push(...getAutoTasksForAfter(date));
-  } else if(!off && letter){
+  if(off){
+    automationItems.push(...getAutoTasksForFreeDay(date));
+  } else if(letter){
     for(let pNum=1;pNum<=7;pNum++) automationItems.push(...getAutoTasksForSlot(date,pNum));
     automationItems.push(...getAutoTasksForLunch(date), ...getAutoTasksForAfter(date), ...getAutoTasksForMorning(date));
   } else {
@@ -2127,11 +2127,54 @@ function cloneDayTaskState(ds){
   return {tasks,freeTasks};
 }
 
+function consolidateDayOffTasks(ds){
+  const date=new Date(ds+'T12:00:00');
+  if(!isDayOff(date))return false;
+  if(!data.dayModes)data.dayModes={};
+  const modeState=data.dayModes[ds]||{};
+  if(!modeState.schoolSnapshot){
+    modeState.schoolSnapshot=cloneDayTaskState(ds);
+    modeState.mode='free';
+    data.dayModes[ds]=modeState;
+  }
+  const freeKey=`${ds}-free`;
+  if(!Array.isArray(data.freeTasks[freeKey]))data.freeTasks[freeKey]=[];
+  const existing=new Set(data.freeTasks[freeKey].map(task=>String(task.id)));
+  let changed=false;
+  Object.keys(data.tasks||{}).forEach(key=>{
+    const match=key.match(/^(\d{4}-\d{2}-\d{2})_P(\d+)$/);
+    if(!match||match[1]!==ds)return;
+    (data.tasks[key]||[]).forEach(task=>{
+      if(existing.has(String(task.id)))return;
+      data.freeTasks[freeKey].push({...task,classNum:Number(match[2])});
+      existing.add(String(task.id));
+      changed=true;
+    });
+    delete data.tasks[key];
+    changed=true;
+  });
+  [`${ds}-after`,`${ds}-morning`,`${ds}-lunch`].forEach(key=>{
+    (data.freeTasks[key]||[]).forEach(task=>{
+      if(existing.has(String(task.id)))return;
+      data.freeTasks[freeKey].push({...task});
+      existing.add(String(task.id));
+      changed=true;
+    });
+    delete data.freeTasks[key];
+    changed=true;
+  });
+  if(data.freeTasks[freeKey].length)data.freeTasks[freeKey].sort((a,b)=>(a.classNum||99)-(b.classNum||99));
+  else delete data.freeTasks[freeKey];
+  if(changed)save();
+  return changed;
+}
+
 function switchDayTaskMode(ds, makeOff){
   if(!data.dayModes) data.dayModes={};
   const modeState=data.dayModes[ds]||{};
   const freeKey=`${ds}-free`;
-  const afterKey=`${ds}-after`;
+  const extraKeys=[`${ds}-after`,`${ds}-lunch`,`${ds}-morning`];
+  const afterKey=extraKeys[0];
 
   if(makeOff){
     modeState.schoolSnapshot=cloneDayTaskState(ds);
@@ -2142,7 +2185,10 @@ function switchDayTaskMode(ds, makeOff){
         const pNum=Number((key.match(/_P(\d+)$/)||[])[1]||0);
         modeState.schoolSnapshot.tasks[key].forEach(task=>combined.push({...task,classNum:pNum||undefined}));
       });
-    (data.freeTasks[freeKey]||[]).forEach(task=>combined.push({...task}));
+    [freeKey,...extraKeys].forEach(key=>{
+      (data.freeTasks[key]||[]).forEach(task=>combined.push({...task}));
+      delete data.freeTasks[key];
+    });
     Object.keys(data.tasks).forEach(key=>{if(key.startsWith(`${ds}_`)) delete data.tasks[key];});
     if(combined.length) data.freeTasks[freeKey]=combined;
     else delete data.freeTasks[freeKey];
@@ -2165,6 +2211,14 @@ function switchDayTaskMode(ds, makeOff){
       .filter(task=>currentById.has(String(task.id)))
       .map(task=>JSON.parse(JSON.stringify(currentById.get(String(task.id)))));
     snapshotFree.forEach(task=>originalSchoolIds.add(String(task.id)));
+    const restoredExtra={};
+    extraKeys.forEach(key=>{
+      const list=(schoolSnapshot.freeTasks[key]||[])
+        .filter(task=>currentById.has(String(task.id)))
+        .map(task=>JSON.parse(JSON.stringify(currentById.get(String(task.id)))));
+      list.forEach(task=>originalSchoolIds.add(String(task.id)));
+      if(list.length) restoredExtra[key]=list;
+    });
     const newTasks=currentFree.filter(task=>!originalSchoolIds.has(String(task.id)));
 
     Object.keys(data.tasks).forEach(key=>{if(key.startsWith(`${ds}_`)) delete data.tasks[key];});
@@ -2172,8 +2226,9 @@ function switchDayTaskMode(ds, makeOff){
       if(list.length) data.tasks[key]=JSON.parse(JSON.stringify(list));
       else delete data.tasks[key];
     });
+    [freeKey,...extraKeys].forEach(key=>delete data.freeTasks[key]);
     if(restoredFree.length) data.freeTasks[freeKey]=restoredFree;
-    else delete data.freeTasks[freeKey];
+    Object.entries(restoredExtra).forEach(([key,list])=>{data.freeTasks[key]=list;});
 
     const periodNums=new Set((cfg.periods||[]).map(p=>Number(p.num)));
     newTasks.forEach(task=>{
@@ -2195,7 +2250,7 @@ function switchDayTaskMode(ds, makeOff){
   data.dayModes[ds]=modeState;
 }
 
-// Set a day to School/Weekend or Homework — weekends never become school days
+// Set a day to School or Day Off — weekends never become school days
 function setDayState(ds, makeOff){
   const date=new Date(ds+'T12:00:00');
   const isWknd=WE.has(date.getDay());
@@ -2219,7 +2274,7 @@ function setDayState(ds, makeOff){
   if(makeOff) data.dayOff[ds]=true;
   else delete data.dayOff[ds];
   delete data.dayOn[ds];
-  logTaskEvent('day_mode',makeOff?'Homework':'School',{where:ds});
+  logTaskEvent('day_mode',makeOff?'Day Off':'School',{where:ds});
   save(); renderWeek();
 }
 
@@ -2557,7 +2612,7 @@ function migrateLegacyWeekendTasks(){
     const match=key.match(/^(\d{4}-\d{2}-\d{2})_P(\d+)$/);
     if(!match) return;
     const date=new Date(`${match[1]}T12:00:00`);
-    if(!WE.has(date.getDay())) return;
+    if(!WE.has(date.getDay())&&!data.dayOff[match[1]]) return;
     const freeKey=`${match[1]}-free`;
     if(!Array.isArray(data.freeTasks[freeKey])) data.freeTasks[freeKey]=[];
     const existing=new Set(data.freeTasks[freeKey].map(task=>task.id));
@@ -2586,7 +2641,7 @@ function migrateLegacyWeekendTasks(){
     const match=key.match(/^(\d{4}-\d{2}-\d{2})-(after|morning|lunch)$/);
     if(!match) return;
     const date=new Date(`${match[1]}T12:00:00`);
-    if(!WE.has(date.getDay())) return;
+    if(!WE.has(date.getDay())&&!data.dayOff[match[1]]) return;
     const freeKey=`${match[1]}-free`;
     if(!Array.isArray(data.freeTasks[freeKey])) data.freeTasks[freeKey]=[];
     const existing=new Set(data.freeTasks[freeKey].map(task=>task.id));
@@ -2672,7 +2727,8 @@ function renderWeek(){
     const ov=data.dayOv[ds]!=null;
     const off=isDayOff(date);
     const weekendActive=isWknd;
-    const homeworkActive=!isWknd&&off;
+    const dayOffActive=!isWknd&&off;
+    if(off)consolidateDayOffTasks(ds);
     const daySummary=getDayTaskSummary(ds);
 
     const col=document.createElement('div');
@@ -2681,8 +2737,8 @@ function renderWeek(){
     let badge='';
     if(weekendActive){
       badge=`<div class="dbb ns">Weekend</div>`;
-    } else if(homeworkActive){
-      badge=`<div class="dbb ns">Homework</div>`;
+    } else if(dayOffActive){
+      badge=`<div class="dbb ns">Day Off</div>`;
     } else if(!letter){
       badge=`<div class="dbb ns">No School</div>`;
     } else {
@@ -2691,14 +2747,11 @@ function renderWeek(){
 
     const countHtml = `<div class="day-count ${daySummary.total===0?'empty':daySummary.pending===0?'done':''}" title="${daySummary.total} task${daySummary.total!==1?'s':''} on this day">${daySummary.pending}</div>`;
 
-    const schoolSVG=`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3L2 9v1h2v10h4v-5h4v5h4V10h2V9L12 3zm0 2.3L18 9.2V19h-2v-5H8v5H6V9.2L12 5.3z"/></svg>`;
-    const beachSVG=`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.3c2.4-1.6 4.8-2.4 9-2.4 4.1 0 6.6.8 9 2.4V19H3v-1.7zm1.9-4.2h13.4v1.5H4.9v-1.5zm2.5-3.9h8.1c.7 0 1.3.6 1.3 1.3v.4H6.1v-.4c0-.7.6-1.3 1.3-1.3zm1.5 1.4h5.1c.2 0 .4.1.4.4v.4H8.5v-.4c0-.3.2-.4.4-.4zm-1.7 5.7h8.6v1.1H7.2v-1.1z"/></svg>`;
-    const bookSVG=`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12a2 2 0 0 1 2 2v18l-8-4-8 4V4a2 2 0 0 1 2-2zm2 4v2h8V6H8zm0 4v2h8v-2H8z"/></svg>`;
     const toggleHtml=isWknd
       ? ''
       : `<div class="day-toggle">
-          <button class="dt-school${!off?' active':''}" onclick="setDayState('${ds}',false)" title="School day" aria-label="School day">${schoolSVG}</button>
-          <button class="dt-homework${off?' active':''}" onclick="setDayState('${ds}',true)" title="Homework" aria-label="Homework">${bookSVG}</button>
+          <button class="dt-school${!off?' active':''}" onclick="setDayState('${ds}',false)" title="School day" aria-label="School day">${svgIcon('school')}</button>
+          <button class="dt-dayoff${off?' active':''}" onclick="setDayState('${ds}',true)" title="Day Off" aria-label="Day Off">${svgIcon('home')}</button>
         </div>`;
 
     const hdr=document.createElement('div');
@@ -2711,11 +2764,7 @@ function renderWeek(){
     if(!off && letter) cont.appendChild(morningCard(ds));
 
     if(off){
-      if(isWknd) cont.appendChild(freeCard(ds, `${svgIcon('sun','icon-sm')} Weekend`));
-      else {
-        [...cfg.periods].sort((a,b)=>a.num-b.num).forEach(p=>cont.appendChild(homeworkClassCard(ds,p)));
-        cont.appendChild(homeworkExtraCard(ds));
-      }
+      cont.appendChild(freeCard(ds, isWknd?`${svgIcon('sun','icon-sm')} Weekend`:`${svgIcon('sunrise','icon-sm')} Day Off`));
     } else if(!letter){
       cont.appendChild(freeCard(ds,`${svgIcon('school','icon-sm')} No School`));
     } else {
@@ -2950,12 +2999,13 @@ function buildOffSlot(ds, pDef, displaced){
 function freeCard(ds, label){
   const el=document.createElement('div');
   const freeKey=`${ds}-free`;
-  el.className=`slot${expandedListKeys.has(freeKey)?'':' collapsed'}`; el.dataset.key=freeKey; el.style.border='1px dashed var(--border)';
+  const offCard=label.includes('Weekend')||label.includes('Day Off');
+  el.className=`slot${offCard?' dayoff':''}${expandedListKeys.has(freeKey)?'':' collapsed'}`; el.dataset.key=freeKey; el.style.border='1px dashed var(--border)';
   const tasks=data.freeTasks[`${ds}-free`]||[];
   const autoItems=getAutoTasksForFreeDay(new Date(ds+'T12:00:00'));
   const total=tasks.length+autoItems.length;
   const pending=tasks.filter(t=>!t.done).length+autoItems.filter(t=>!isAutoDone(t.date,t.id)).length;
-  const placeholder=label.includes('Homework')||label.includes('Weekend')?'Add homework…':'Add reminder…';
+  const placeholder=label.includes('Homework')||label.includes('Weekend')||label.includes('Day Off')?'Add task…':'Add reminder…';
   el.innerHTML=`
       <div class="slot-hd" onclick="this.parentElement.classList.toggle('open');this.parentElement.classList.toggle('collapsed')">
         <div class="sn" style="color:var(--ts)">${label}</div><span class="stc ${total===0?'empty':pending===0?'done-all':''}" id="fc-${freeKey}">${total?pending:0}</span><div class="sv">▼</div>
@@ -4356,7 +4406,7 @@ function termHelp(){
     '',
     'DAY / SCHEDULE',
     '  letter <date>  ·  setletter <date> A–G|auto',
-    '  off|homework <date>  ·  school|weekend <date>',
+    '  off|homework|weekend <date>  ·  school <date>',
     '  goto <date|today|tom>  ·  next  ·  prev  ·  calendar',
     '  view week|centered|upcoming  ·  bell early|late  ·  time 12h|24h  ·  theme dark|light  ·  settings',
     '',
@@ -4468,7 +4518,6 @@ function termParsePeriod(token){
 function termResolveTarget(ds,token){
   const t=String(token||'').toLowerCase();
   const date=new Date(ds+'T12:00:00');
-  const isWknd=WE.has(date.getDay());
   const off=isDayOff(date);
   const p=/^p\d{1,2}$/i.test(t)?termParsePeriod(t):null;
   if(p){
@@ -4478,7 +4527,7 @@ function termResolveTarget(ds,token){
   const aliases={free:'free',hw:'free',homework:'free',after:'after',extra:'after',morning:'morning',morn:'morning',lunch:'lunch'};
   const a=aliases[t];
   if(!a)return null;
-  if(isWknd||(off&&a!=='after'))return {list:'freeTasks',key:`${ds}-free`,classNum:null,label:'free'};
+  if(off)return {list:'freeTasks',key:`${ds}-free`,classNum:null,label:'free'};
   return {list:'freeTasks',key:`${ds}-${a}`,classNum:null,label:a};
 }
 function termStoreFor(target){return target.list==='tasks'?data.tasks:data.freeTasks;}
@@ -4536,9 +4585,11 @@ function termAddFromTokens(tokens){
 function termListDate(ds){
   const date=new Date(ds+'T12:00:00');
   const off=isDayOff(date);
+  const isWknd=WE.has(date.getDay());
+  consolidateDayOffTasks(ds);
   const letter=getDayLetter(date);
   const ov=data.dayOv[ds];
-  termPrint(`${ds} ${DAYS[date.getDay()]} · ${off?'homework day':letter?'Day '+letter:'no school'}${ov?' (override '+ov+')':''}`,'cmd');
+  termPrint(`${ds} ${DAYS[date.getDay()]} · ${off?isWknd?'weekend':'day off':letter?'Day '+letter:'no school'}${ov?' (override '+ov+')':''}`,'cmd');
   const groups=[];
   Object.keys(data.tasks||{}).filter(k=>k.startsWith(ds+'_')).sort().forEach(k=>groups.push({list:'tasks',key:k,label:k.split('_')[1]}));
   ['free','after','morning','lunch'].forEach(s=>{
@@ -4558,6 +4609,10 @@ function termListDate(ds){
   termPrint(`  ${summary.pending} pending / ${summary.total} total`,'dim');
 }
 function termListAll(filter){
+  new Set([
+    ...Object.keys(data.tasks||{}).map(key=>key.split('_')[0]),
+    ...Object.keys(data.freeTasks||{}).map(key=>key.slice(0,10))
+  ]).forEach(ds=>consolidateDayOffTasks(ds));
   const groups=[];
   Object.entries(data.tasks||{}).forEach(([key,items])=>{
     if(!Array.isArray(items))return;
@@ -4580,6 +4635,7 @@ function termListAll(filter){
   termPrint(`${shown.length} of ${groups.length} tasks`,'dim');
 }
 function termFindItem(ds,target,ref){
+  consolidateDayOffTasks(ds);
   const store=termStoreFor(target);
   const items=store[target.key]||[];
   const m=String(ref).match(/^#?(\d+)$/);
@@ -4896,7 +4952,7 @@ async function termRun(raw){
       const ds=termParseDate(rest[0]);
       if(!ds)throw new Error('Invalid date: '+rest[0]);
       const date=new Date(ds+'T12:00:00');
-      termPrint(`${ds} · ${data.dayOv[ds]?'Day '+data.dayOv[ds]+' (override)':isDayOff(date)?'homework day':'Day '+(getDayLetter(date)||'—')}`);
+      termPrint(`${ds} · ${data.dayOv[ds]?'Day '+data.dayOv[ds]+' (override)':isDayOff(date)?WE.has(date.getDay())?'weekend':'day off':'Day '+(getDayLetter(date)||'—')}`);
       return;
     }
     case 'setletter':{
@@ -4923,7 +4979,7 @@ async function termRun(raw){
       const makeOff=cmd==='off'||cmd==='homework'||cmd==='weekend';
       const isWknd=WE.has(new Date(ds+'T12:00:00').getDay());
       setDayState(ds,makeOff);
-      termPrint(`${ds} is ${isWknd?'always a weekend day':makeOff?'a homework day':'a school day'}`,'ok');
+      termPrint(`${ds} is ${isWknd?'always a weekend day':makeOff?'a day off':'a school day'}`,'ok');
       return;
     }
     case 'goto':{

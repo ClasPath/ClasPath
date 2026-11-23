@@ -481,6 +481,24 @@
     /* ── Toast ── */
     #toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%) translateY(60px);background:var(--toast-bg);color:var(--toast-text);padding:8px 16px;border-radius:7px;font-size:13px;z-index:9999;transition:transform .22s;pointer-events:none;white-space:nowrap;box-shadow:var(--shm)}
     #toast.show{transform:translateX(-50%) translateY(0)}
+    .term-tab{position:fixed;left:0;top:50%;transform:translateY(-50%);z-index:240;display:none;background:var(--surface);border:1px solid var(--border);border-left:none;border-radius:0 10px 10px 0;box-shadow:var(--shm);padding:12px 7px;font:700 13px var(--f);color:var(--primary);cursor:pointer;writing-mode:vertical-rl;letter-spacing:1px}
+    .term-tab:hover{background:var(--pl)}
+    .term-panel{display:none;position:fixed;left:0;top:0;bottom:0;width:min(560px,100vw);z-index:250;background:var(--surface);border-right:1px solid var(--border);box-shadow:4px 0 20px rgba(0,0,0,.18);flex-direction:column}
+    .term-panel.open{display:flex}
+    .term-head{display:flex;align-items:center;gap:6px;padding:10px 12px;border-bottom:1px solid var(--border);background:var(--surface2)}
+    .term-title{flex:1;font:700 13px var(--f);color:var(--text)}
+    .term-btn{border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:7px;min-width:28px;height:28px;cursor:pointer;font:700 12px var(--f)}
+    .term-btn:hover{background:var(--pl);color:var(--primary)}
+    .term-out{flex:1;overflow-y:auto;padding:12px;background:var(--bg);font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--text);white-space:pre-wrap;word-break:break-word}
+    .term-line{margin:0 0 4px}
+    .term-line.err{color:var(--danger)}
+    .term-line.ok{color:var(--ok)}
+    .term-line.dim{color:var(--ts)}
+    .term-line.cmd{color:var(--primary);font-weight:700}
+    .term-in-row{display:flex;align-items:center;gap:8px;padding:10px 12px;border-top:1px solid var(--border);background:var(--surface)}
+    .term-prompt{color:var(--primary);font-weight:700;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .term-input{flex:1;min-width:0;border:none;outline:none;background:transparent;color:var(--text);font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .term-send{border:none;background:var(--primary);color:var(--on-primary);border-radius:7px;width:30px;height:30px;cursor:pointer;font-weight:700}
     ::-webkit-scrollbar{width:5px;height:5px}
     ::-webkit-scrollbar-track{background:transparent}
     ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
@@ -967,6 +985,22 @@
   </div>
 </div>
 
+<div class="term-tab" id="term-tab" title="Open command terminal" onclick="termToggle()">&gt;_</div>
+<div class="term-panel" id="term-panel">
+  <div class="term-head">
+    <span class="term-title">ClasPath terminal</span>
+    <button class="term-btn" type="button" title="All commands" onclick="termHelp()">?</button>
+    <button class="term-btn" type="button" title="Clear output" onclick="termClear()">x</button>
+    <button class="term-btn" type="button" title="Close terminal" onclick="termToggle()">×</button>
+  </div>
+  <div class="term-out" id="term-out"></div>
+  <form class="term-in-row" onsubmit="event.preventDefault();termSubmit()">
+    <span class="term-prompt">&gt;</span>
+    <input class="term-input" id="term-input" autocomplete="off" spellcheck="false" placeholder="Type ? for commands" />
+    <button class="term-send" type="submit">↵</button>
+  </form>
+</div>
+
 <div id="toast"></div>
 <footer class="page-copyright">© 2026 ClasPath. All rights reserved.</footer>
 
@@ -1177,6 +1211,22 @@ function mergeItemLists(cloudValue, localValue, type, tombstones){
   });
   return result;
 }
+function mergePeriods(cloudList, localList, cloudTimes, localTimes, tombstones){
+  const byNum = new Map();
+  [[cloudList, cloudTimes], [localList, localTimes]].forEach(([list, times]) => {
+    (Array.isArray(list) ? list : []).forEach(period => {
+      if(!period || period.num == null) return;
+      const num = String(period.num);
+      const time = stampAt(times, keyStamp('period', num));
+      const current = byNum.get(num);
+      if(!current || time >= current.time) byNum.set(num, {period, time});
+    });
+  });
+  return [...byNum.entries()]
+    .filter(([num, entry]) => entry.time > stampAt(tombstones, idStamp('period', num)))
+    .sort((a,b) => Number(a[0]) - Number(b[0]))
+    .map(([, entry]) => entry.period);
+}
 function mergeTaskCollections(cloudTasks, cloudFreeTasks, localTasks, localFreeTasks, tombstones){
   const cloudItems = new Map([...locateItems(cloudTasks), ...locateItems(cloudFreeTasks)]);
   const localItems = new Map([...locateItems(localTasks), ...locateItems(localFreeTasks)]);
@@ -1257,8 +1307,21 @@ function applyLocalDiff(previous){
     });
   });
 
+  const periodBefore = new Map((Array.isArray(prevCfg.periods) ? prevCfg.periods : []).map(p => [String(p.num), p]));
+  const periodAfter = new Map((Array.isArray(cfg.periods) ? cfg.periods : []).map(p => [String(p.num), p]));
+  periodAfter.forEach((period, num) => {
+    const old = periodBefore.get(num);
+    if(!old || JSON.stringify(old) !== JSON.stringify(period)) keyTimes[keyStamp('period', num)] = ts;
+    delete deletedIds[idStamp('period', num)];
+  });
+  periodBefore.forEach((_, num) => {
+    if(periodAfter.has(num)) return;
+    deletedIds[idStamp('period', num)] = ts;
+    delete keyTimes[keyStamp('period', num)];
+  });
+
   new Set([...Object.keys(prevCfg), ...Object.keys(cfg)]).forEach(key => {
-    if(key === 'automations') return;
+    if(key === 'automations' || key === 'periods') return;
     if(JSON.stringify(prevCfg[key]) === JSON.stringify(cfg[key])) return;
     keyTimes[keyStamp('cfg', key)] = ts;
   });
@@ -1306,11 +1369,12 @@ function mergeStoredState(localState, cloudState){
 
   const mergedCfg = normalizeStateCfg(cloudCfg);
   new Set([...Object.keys(cloudCfg), ...Object.keys(localCfg)]).forEach(key => {
-    if(key === 'automations') return;
+    if(key === 'automations' || key === 'periods') return;
     const stamp = keyStamp('cfg', key);
     mergedCfg[key] = stampAt(lTimes, stamp) >= stampAt(cTimes, stamp) ? localCfg[key] : cloudCfg[key];
   });
   mergedCfg.automations = mergeItemLists(cloudCfg.automations, localCfg.automations, 'automation', deletedIds);
+  mergedCfg.periods = mergePeriods(cloudCfg.periods, localCfg.periods, cTimes, lTimes, deletedIds);
 
   return { cfg: mergedCfg, data: mergedData };
 }
@@ -1333,6 +1397,7 @@ async function onSignedIn(user){
     cfg = normalizeStateCfg(cfg);
     data = normalizeStateData(data);
   }
+  applyTheme(cfg.theme);
   lastSavedState = cloneState();
 
   const cloudState = await loadFromCloud();
@@ -1343,6 +1408,7 @@ async function onSignedIn(user){
     data = merged.data;
     lastAppliedRemoteAt = cloudState.updatedAt || null;
     localDirty = true;
+    applyTheme(cfg.theme);
     commitState();
   }
 
@@ -1433,9 +1499,11 @@ async function reconcileWithCloud(){
   }
 }
 function renderAfterRemoteMerge(){
+  applyTheme(cfg.theme);
   try{ renderWeek(); }catch(e){}
   if(document.getElementById('gpamod')?.classList.contains('open')) renderGpaCalculator();
   if(document.getElementById('automod')?.classList.contains('open')) renderAutoList();
+  if(document.getElementById('setmod')?.classList.contains('open')) openSettings();
 }
 function onFocusSync(){ if(supaUser) enqueueSync(reconcileWithCloud); }
 function onVisibilitySync(){ if(!document.hidden) onFocusSync(); }
@@ -1535,12 +1603,17 @@ function saveCurrentState(){
   toast('Saved ✓');
 }
 
-function toggleTheme(){
-  const root=document.documentElement;
-  const next=root.dataset.theme==='dark'?'light':'dark';
-  root.dataset.theme=next;
-  try{localStorage.setItem('claspath_theme',next);}catch(e){}
+function applyTheme(theme){
+  if(theme!=='dark' && theme!=='light') return;
+  document.documentElement.dataset.theme=theme;
+  try{localStorage.setItem('claspath_theme',theme);}catch(e){}
   updateThemeButton();
+}
+function toggleTheme(){
+  const next=document.documentElement.dataset.theme==='dark'?'light':'dark';
+  cfg.theme=next;
+  applyTheme(next);
+  save();
 }
 function updateThemeButton(){
   const btn=document.getElementById('theme-btn');
@@ -1552,6 +1625,12 @@ function updateThemeButton(){
 
 // ── Screen helper ──────────────────────────────────────
 function showScreen(id){
+  const termTab=document.getElementById('term-tab');
+  if(termTab) termTab.style.display=id==='screen-app'?'':'none';
+  if(id!=='screen-app'){
+    const termPanel=document.getElementById('term-panel');
+    if(termPanel) termPanel.classList.remove('open');
+  }
   const current = document.querySelector('.screen.active');
   const next = document.getElementById(id);
   if(screenTransitionTimer){clearTimeout(screenTransitionTimer);screenTransitionTimer=null;}
@@ -4203,6 +4282,728 @@ function getAutoTasksForFreeDay(date){
   return items;
 }
 
+function termPrint(text,kind){
+  const out=document.getElementById('term-out');
+  if(!out)return;
+  const line=document.createElement('div');
+  line.className='term-line'+(kind?' '+kind:'');
+  line.textContent=String(text);
+  out.appendChild(line);
+  while(out.children.length>500)out.removeChild(out.firstChild);
+  out.scrollTop=out.scrollHeight;
+}
+function termToggle(){
+  const panel=document.getElementById('term-panel');
+  if(!panel)return;
+  const open=panel.classList.toggle('open');
+  if(open){const input=document.getElementById('term-input');if(input)input.focus();}
+}
+function termClear(){
+  const out=document.getElementById('term-out');
+  if(out)out.innerHTML='';
+}
+function termHelp(){
+  termPrint('ClasPath terminal — all commands','cmd');
+  [
+    'QUICK ADD',
+    '  YYYY-MM-DD P3 Finish essay [at 9:30 PM]',
+    '  dates: YYYY-MM-DD, today, tom, tomorrow, yesterday, or a weekday',
+    '  targets: P1–P7, free, after, morning, lunch',
+    '',
+    'ITEMS',
+    '  list <date> [target]  ·  done <date> <target> <#|text>',
+    '  edit <date> <target> <#|text> New text [at HH:MM]  ·  del <date> <target> <#|text>',
+    '  focus <date> <target> <#|text>  ·  open|close <date> <target>',
+    '  undo  ·  redo  ·  save  ·  sync  ·  clear  ·  clearall  ·  signout',
+    '',
+    'DAY / SCHEDULE',
+    '  letter <date>  ·  setletter <date> A–G|auto',
+    '  off|homework <date>  ·  school|weekend <date>',
+    '  goto <date|today|tom>  ·  next  ·  prev  ·  calendar',
+    '  view week|centered|upcoming  ·  bell early|late  ·  time 12h|24h  ·  theme dark|light  ·  settings',
+    '',
+    'AUTOMATIONS',
+    '  auto list  ·  auto open',
+    '  auto add class P3 Text [at 07:30] [dest same|P3|lunch|after|morning]',
+    '  auto add weekday mon,wed Text [at HH:MM] [dest ...]',
+    '  auto add letter A,B Text [at HH:MM] [dest ...]',
+    '  auto add date YYYY-MM-DD Text [days 2] [at HH:MM] [dest ...]',
+    '  auto add keyword algebra Text [at HH:MM] [dest ...]',
+    '  auto toggle <id|#>  ·  auto del <id|#>',
+    '',
+    'CLASSES',
+    '  class list  ·  class add P3 "Algebra II" [lab] [days A,B] [color #4285f4]',
+    '  class set P3 name "Algebra II"|lab on|off|days A,B|color #4285f4  ·  class del P3',
+    '',
+    'FOCUS / HISTORY / GPA',
+    '  timer  ·  timer timer 25 0  ·  timer stopwatch  ·  timer alarm 07:00',
+    '  timer start|pause|reset  ·  history [all|tasks|focus]  ·  history clear',
+    '  gpa list  ·  gpa mode weighted|unweighted',
+    '  gpa add "Algebra II" A honors 4  ·  gpa edit <#|id> name|grade|level|credits Value',
+    '  gpa del <#|id>  ·  gpa reset'
+  ].forEach(line=>termPrint(line));
+}
+async function termSubmit(){
+  const input=document.getElementById('term-input');
+  if(!input)return;
+  const raw=input.value.trim();
+  if(!raw)return;
+  input.value='';
+  termPrint('> '+raw,'cmd');
+  try{await termRun(raw);}catch(err){termPrint('Error: '+(err&&err.message?err.message:err),'err');}
+}
+function termTokenize(str){
+  const tokens=[];
+  let cur='',quote=null;
+  for(const ch of String(str||'')){
+    if(quote){
+      if(ch===quote)quote=null;
+      else cur+=ch;
+    }else if(ch==='"'||ch==="'"){
+      quote=ch;
+    }else if(/\s/.test(ch)){
+      if(cur){tokens.push(cur);cur='';}
+    }else cur+=ch;
+  }
+  if(cur)tokens.push(cur);
+  return tokens;
+}
+function termPad(n){return String(n).padStart(2,'0');}
+function termParseTime(value){
+  const v=String(value||'').trim().toLowerCase().replace(/\s+/g,' ');
+  if(!v)return '';
+  if(v==='noon')return '12:00';
+  if(v==='midnight')return '00:00';
+  let m=v.match(/^(\d{1,2}):(\d{2})(?:\s*([ap])\.?m\.?)?$/);
+  if(m){
+    let hours=Number(m[1]);
+    const minutes=Number(m[2]);
+    const ap=m[3];
+    if(ap==='p'&&hours<12)hours+=12;
+    if(ap==='a'&&hours===12)hours=0;
+    if(hours<0||hours>23||minutes<0||minutes>59)return null;
+    return termPad(hours)+':'+termPad(minutes);
+  }
+  m=v.match(/^(\d{1,2})(?:\s*([ap])\.?m\.?)?$/);
+  if(m){
+    let hours=Number(m[1]);
+    const ap=m[2];
+    if(ap==='p'&&hours<12)hours+=12;
+    if(ap==='a'&&hours===12)hours=0;
+    if(hours<0||hours>23)return null;
+    return termPad(hours)+':00';
+  }
+  return null;
+}
+function termLooksLikeDate(token){
+  const t=String(token||'').toLowerCase();
+  return /^\d{4}-\d{2}-\d{2}$/.test(t)||['today','tom','tomorrow','yesterday'].includes(t)||['sun','mon','tue','wed','thu','fri','sat'].includes(t.slice(0,3));
+}
+function termParseDate(token){
+  const t=String(token||'').toLowerCase();
+  const explicit=/^\d{4}-\d{2}-\d{2}$/.test(t);
+  let d=null;
+  if(explicit)d=new Date(t+'T12:00:00');
+  else if(t==='today')d=new Date();
+  else if(t==='tom'||t==='tomorrow')d=addDays(new Date(),1);
+  else if(t==='yesterday')d=addDays(new Date(),-1);
+  else{
+    const names=['sun','mon','tue','wed','thu','fri','sat'];
+    const idx=names.indexOf(t.slice(0,3));
+    if(idx>=0){d=new Date();let diff=(idx-d.getDay()+7)%7;if(diff===0)diff=7;d=addDays(d,diff);}
+  }
+  if(!d||isNaN(d.getTime()))return null;
+  const ds=toDS(dateOnly(d));
+  if(explicit&&ds!==t)return null;
+  return ds;
+}
+function termParsePeriod(token){
+  const s=String(token||'').trim().toLowerCase().replace(/^period:/,'').replace(/^class:/,'').replace(/^p/,'');
+  if(!/^\d{1,2}$/.test(s))return null;
+  const n=Number(s);
+  return n>=1&&n<=7?n:null;
+}
+function termResolveTarget(ds,token){
+  const t=String(token||'').toLowerCase();
+  const p=/^p\d{1,2}$/i.test(t)?termParsePeriod(t):null;
+  if(p){
+    const date=new Date(ds+'T12:00:00');
+    if(isDayOff(date))return {list:'freeTasks',key:`${ds}-free`,classNum:p,label:`P${p}`};
+    return {list:'tasks',key:`${ds}_P${p}`,classNum:null,label:`P${p}`};
+  }
+  const aliases={free:'free',hw:'free',homework:'free',after:'after',extra:'after',morning:'morning',morn:'morning',lunch:'lunch'};
+  const a=aliases[t];
+  if(a)return {list:'freeTasks',key:`${ds}-${a}`,classNum:null,label:a};
+  return null;
+}
+function termStoreFor(target){return target.list==='tasks'?data.tasks:data.freeTasks;}
+function termAddItem(ds,target,text,time){
+  recordHistory();
+  const store=termStoreFor(target);
+  if(!Array.isArray(store[target.key]))store[target.key]=[];
+  const item={id:Date.now()+Math.random(),text:String(text),done:false,time:time||''};
+  if(target.classNum)item.classNum=target.classNum;
+  store[target.key].push(item);
+  if(target.classNum)store[target.key].sort((a,b)=>(a.classNum||99)-(b.classNum||99));
+  logTaskEvent('task_added',text,{where:describeTaskKey(target.key)});
+  save();
+  renderWeek();
+  termPrint(`Added ${ds} ${target.label}: ${text}${time?' @ '+formatClockTime(time):''}`,'ok');
+  return item;
+}
+function termPullTrailingTime(parts){
+  let p=parts.slice();
+  if(p.length>=2&&/^(a|p)\.?m\.?$/i.test(p[p.length-1])){
+    const parsed=termParseTime(p[p.length-2]+' '+p[p.length-1]);
+    if(parsed)return {time:parsed,parts:p.slice(0,-2)};
+  }
+  if(p.length){
+    const parsed=termParseTime(p[p.length-1]);
+    if(parsed)return {time:parsed,parts:p.slice(0,-1)};
+  }
+  return {time:'',parts:p};
+}
+function termAddFromTokens(tokens){
+  let parts=tokens.slice();
+  let time='';
+  for(let i=parts.length-1;i>1;i--){
+    if(parts[i].toLowerCase()==='at'){
+      const parsed=termParseTime(parts.slice(i+1).join(' '));
+      if(parsed){time=parsed;parts=parts.slice(0,i);break;}
+    }
+  }
+  if(!time){
+    const trailing=termPullTrailingTime(parts);
+    if(trailing.time){time=trailing.time;parts=trailing.parts;}
+  }
+  if(parts.length<3)throw new Error('Usage: YYYY-MM-DD P3 Message [at HH:MM]');
+  const ds=termParseDate(parts[0]);
+  if(!ds)throw new Error('Invalid date: '+parts[0]);
+  const target=termResolveTarget(ds,parts[1]);
+  if(!target)throw new Error('Unknown target: '+parts[1]);
+  const text=parts.slice(2).join(' ').trim();
+  if(!text)throw new Error('Message cannot be empty');
+  termAddItem(ds,target,text,time);
+}
+function termListDate(ds){
+  const date=new Date(ds+'T12:00:00');
+  const off=isDayOff(date);
+  const letter=getDayLetter(date);
+  const ov=data.dayOv[ds];
+  termPrint(`${ds} ${DAYS[date.getDay()]} · ${off?'homework day':letter?'Day '+letter:'no school'}${ov?' (override '+ov+')':''}`,'cmd');
+  const groups=[];
+  Object.keys(data.tasks||{}).filter(k=>k.startsWith(ds+'_')).sort().forEach(k=>groups.push({list:'tasks',key:k,label:k.split('_')[1]}));
+  ['free','after','morning','lunch'].forEach(s=>{
+    const k=`${ds}-${s}`;
+    if((data.freeTasks[k]||[]).length)groups.push({list:'freeTasks',key:k,label:s});
+  });
+  let any=false;
+  groups.forEach(g=>{
+    const items=termStoreFor(g)[g.key]||[];
+    if(!items.length)return;
+    any=true;
+    termPrint('  '+g.label+':');
+    items.forEach((item,i)=>termPrint(`    #${i+1} [${item.done?'x':' '}] ${item.text}${item.time?' @ '+formatClockTime(item.time):''}${item.classNum?' · P'+item.classNum:''}`,item.done?'dim':''));
+  });
+  if(!any)termPrint('  (no items)','dim');
+  const summary=getDayTaskSummary(ds);
+  termPrint(`  ${summary.pending} pending / ${summary.total} total`,'dim');
+}
+function termFindItem(ds,target,ref){
+  const store=termStoreFor(target);
+  const items=store[target.key]||[];
+  const m=String(ref).match(/^#?(\d+)$/);
+  if(m){
+    const n=Number(m[1]);
+    if(n>=1&&n<=items.length)return {item:items[n-1],n,items,store,key:target.key};
+  }
+  const needle=String(ref).toLowerCase();
+  const idx=items.findIndex(item=>String(item.text||'').toLowerCase().includes(needle));
+  if(idx>=0)return {item:items[idx],n:idx+1,items,store,key:target.key};
+  throw new Error('No matching item: '+ref);
+}
+function termTakeOptions(tokens,names){
+  const opts={};
+  const rest=[];
+  for(let i=0;i<tokens.length;i++){
+    const t=String(tokens[i]).toLowerCase();
+    if(t==='lab'){
+      const next=String(tokens[i+1]||'').toLowerCase();
+      if(['on','off','true','false','1','0'].includes(next)){opts.lab=next;i++;}
+      else opts.lab='on';
+    }else if(names.includes(t)&&i+1<tokens.length){
+      opts[t]=tokens[i+1];
+      i++;
+    }else rest.push(tokens[i]);
+  }
+  return {opts,rest};
+}
+function termParseLetters(value){
+  const seen=new Set();
+  String(value||'').toUpperCase().split(/[\s,]+/).forEach(part=>{
+    const letter=part.startsWith('DAY')?part.slice(3):part;
+    if(/^[A-G]$/.test(letter))seen.add(letter);
+  });
+  return [...seen];
+}
+function termParseWeekdays(value){
+  const map={sun:0,sunday:0,mon:1,monday:1,tue:2,tues:2,tuesday:2,wed:3,weds:3,wednesday:3,thu:4,thur:4,thurs:4,thursday:4,fri:5,friday:5,sat:6,saturday:6};
+  const text=String(value||'').toLowerCase().trim();
+  if(text==='weekdays'||text==='workdays')return [1,2,3,4,5];
+  if(text==='all'||text==='everyday')return [0,1,2,3,4,5,6];
+  const seen=new Set();
+  text.split(/[\s,]+/).forEach(part=>{if(map[part]!=null)seen.add(map[part]);});
+  return [...seen].sort((a,b)=>a-b);
+}
+function termAutomationDest(dest,type,match){
+  const raw=String(dest||'same').toLowerCase();
+  const d=raw.replace(/^class:/,'').replace(/^period:/,'');
+  const p=termParsePeriod(raw);
+  if(type==='class'){
+    if(!dest||d==='same'||d==='class')return {where:'same',targetPeriod:match};
+    if(['lunch','after','morning'].includes(d))return {where:d,targetPeriod:match};
+    if(p)return {where:'class',targetPeriod:p};
+    return {where:'same',targetPeriod:match};
+  }
+  if(p)return {where:'class',targetPeriod:p};
+  if(['lunch','after','morning'].includes(d))return {where:d,targetPeriod:null};
+  return {where:'same',targetPeriod:null};
+}
+function termFindAutomation(ref){
+  const autos=cfg.automations||[];
+  const direct=autos.find(a=>String(a.id)===String(ref));
+  if(direct)return direct;
+  const m=String(ref).match(/^#?(\d+)$/);
+  if(m&&autos[Number(m[1])-1])return autos[Number(m[1])-1];
+  throw new Error('No matching automation: '+ref);
+}
+function termAutoList(){
+  const autos=cfg.automations||[];
+  if(!autos.length){termPrint('No automations','dim');return;}
+  autos.forEach((a,i)=>termPrint(`#${i+1} id=${a.id} [${a.enabled?'on':'off'}] ${a.type} ${JSON.stringify(a.match)} → ${a.where}${a.targetPeriod?' P'+a.targetPeriod:''}${a.time?' @ '+formatClockTime(a.time):''} :: ${a.text}`));
+}
+function termAutoAdd(tokens){
+  if(tokens.length<3)throw new Error('Usage: auto add <class|weekday|letter|date|keyword> ...');
+  const type=tokens.shift().toLowerCase();
+  const {opts,rest}=termTakeOptions(tokens,['at','dest','days']);
+  const time=termParseTime(opts.at||'')||'';
+  const dest=termAutomationDest(opts.dest,type,null);
+  let match=null;
+  let text='';
+  if(type==='class'){
+    const num=termParsePeriod(rest[0]);
+    if(!num)throw new Error('Class automation needs P1–P7');
+    match=num;
+    dest.targetPeriod=num;
+    text=rest.slice(1).join(' ').trim();
+  }else if(type==='weekday'){
+    match=termParseWeekdays(rest[0]||'');
+    if(!match.length)throw new Error('Weekday automation needs days like mon,wed');
+    text=rest.slice(1).join(' ').trim();
+  }else if(type==='letter'){
+    match=termParseLetters(rest[0]||'');
+    if(!match.length)throw new Error('Letter automation needs A–G like A,B');
+    text=rest.slice(1).join(' ').trim();
+  }else if(type==='date'){
+    const ds=termParseDate(rest[0]||'');
+    if(!ds)throw new Error('Date automation needs a date');
+    const daysBefore=Math.max(0,parseInt(opts.days||'0',10)||0);
+    match={date:ds,daysBefore};
+    text=rest.slice(1).join(' ').trim();
+  }else if(type==='keyword'){
+    match=String(rest[0]||'').trim();
+    if(!match)throw new Error('Keyword automation needs a keyword');
+    text=rest.slice(1).join(' ').trim();
+  }else throw new Error('Unknown automation type: '+type);
+  if(!text)throw new Error('Automation text cannot be empty');
+  if(!Array.isArray(cfg.automations))cfg.automations=[];
+  const automation={id:Date.now()+Math.floor(Math.random()*1000),type,match,where:dest.where,targetPeriod:dest.targetPeriod,text,time,enabled:true};
+  cfg.automations.push(automation);
+  logTaskEvent('automation_added',text,{where:dest.where||type});
+  save();
+  renderAutoList();
+  renderWeek();
+  termPrint(`Automation added (id ${automation.id}): ${text}`,'ok');
+}
+function termClassFind(ref){
+  const num=termParsePeriod(ref);
+  const period=(cfg.periods||[]).find(p=>p.num===num);
+  if(!period)throw new Error('No class configured for P'+(num||'?'));
+  return period;
+}
+function termTimer(tokens){
+  if(!tokens.length){openTimer();termPrint('Timer opened');return;}
+  const sub=tokens[0].toLowerCase();
+  if(['timer','stopwatch','alarm'].includes(sub)){
+    setTimerMode(sub);
+    if(sub==='timer'){
+      if(tokens[1]!=null)document.getElementById('timer-minutes').value=Math.max(0,parseInt(tokens[1],10)||0);
+      if(tokens[2]!=null)document.getElementById('timer-seconds').value=Math.min(59,Math.max(0,parseInt(tokens[2],10)||0));
+    }else if(sub==='alarm'){
+      const parsed=termParseTime(tokens[1]||'');
+      if(parsed===null)throw new Error('Invalid alarm time');
+      if(parsed)document.getElementById('timer-alarm-time').value=parsed;
+    }
+    applyTimerSettings();
+    openTimer();
+    termPrint('Timer mode: '+sub,'ok');
+    return;
+  }
+  if(sub==='start'){toggleTimer();termPrint('Timer started');return;}
+  if(sub==='pause'){pauseTimer();termPrint('Timer paused');return;}
+  if(sub==='reset'){resetTimer();termPrint('Timer reset');return;}
+  throw new Error('Unknown timer command: '+sub);
+}
+function termGpaFind(ref){
+  ensureGpaData();
+  const direct=data.gpaCourses.find(c=>String(c.id)===String(ref));
+  if(direct)return direct;
+  const m=String(ref).match(/^#?(\d+)$/);
+  if(m&&data.gpaCourses[Number(m[1])-1])return data.gpaCourses[Number(m[1])-1];
+  throw new Error('No matching GPA course: '+ref);
+}
+function termGpaList(){
+  ensureGpaData();
+  if(!data.gpaCourses.length){termPrint('No GPA courses','dim');return;}
+  data.gpaCourses.forEach((c,i)=>termPrint(`#${i+1} ${c.name||'(unnamed)'} · ${c.grade||'—'} ${c.level} ${formatCredits(c.credits)} cr`));
+  const w=calculateMhsGpa(data.gpaCourses,true);
+  const u=calculateMhsGpa(data.gpaCourses,false);
+  termPrint(`Weighted ${formatGpa(w.gpa)} · Unweighted ${formatGpa(u.gpa)} · ${formatCredits(w.credits)} credits`,'ok');
+}
+async function termRun(raw){
+  const tokens=termTokenize(raw);
+  if(!tokens.length)return;
+  const cmd=tokens[0].toLowerCase();
+  const rest=tokens.slice(1);
+  if(cmd==='help'||cmd==='?'){termHelp();return;}
+  if(cmd==='clear'||cmd==='cls'){termClear();return;}
+  if(cmd==='add'){termAddFromTokens(rest);return;}
+  if(termLooksLikeDate(cmd)){termAddFromTokens(tokens);return;}
+  switch(cmd){
+    case 'list':{
+      if(!rest.length)throw new Error('Usage: list <date> [target]');
+      const ds=termParseDate(rest[0]);
+      if(!ds)throw new Error('Invalid date: '+rest[0]);
+      if(!rest[1]){termListDate(ds);return;}
+      const target=termResolveTarget(ds,rest[1]);
+      if(!target)throw new Error('Unknown target: '+rest[1]);
+      const items=termStoreFor(target)[target.key]||[];
+      if(!items.length){termPrint('No items','dim');return;}
+      items.forEach((item,i)=>termPrint(`#${i+1} [${item.done?'x':' '}] ${item.text}${item.time?' @ '+formatClockTime(item.time):''}`));
+      return;
+    }
+    case 'view':{
+      const mode=(rest[0]||'').toLowerCase();
+      if(['week','centered','upcoming'].includes(mode)){setViewMode(mode);termPrint('View: '+mode,'ok');return;}
+      const ds=termParseDate(mode);
+      if(!ds)throw new Error('Usage: view week|centered|upcoming|<date>');
+      termListDate(ds);
+      return;
+    }
+    case 'done':
+    case 'check':{
+      if(rest.length<3)throw new Error('Usage: done <date> <target> <#|text>');
+      const ds=termParseDate(rest[0]);
+      if(!ds)throw new Error('Invalid date: '+rest[0]);
+      const target=termResolveTarget(ds,rest[1]);
+      if(!target)throw new Error('Unknown target: '+rest[1]);
+      const found=termFindItem(ds,target,rest.slice(2).join(' '));
+      recordHistory();
+      found.item.done=!found.item.done;
+      logTaskEvent(found.item.done?'task_done':'task_undone',found.item.text,{where:describeTaskKey(found.key)});
+      save();renderWeek();
+      termPrint(`${found.item.done?'Done':'Reopened'} #${found.n}: ${found.item.text}`,'ok');
+      return;
+    }
+    case 'edit':{
+      if(rest.length<4)throw new Error('Usage: edit <date> <target> <#|text> New text [at HH:MM]');
+      const ds=termParseDate(rest[0]);
+      if(!ds)throw new Error('Invalid date: '+rest[0]);
+      const target=termResolveTarget(ds,rest[1]);
+      if(!target)throw new Error('Unknown target: '+rest[1]);
+      let parts=rest.slice(2);
+      const ref=parts.shift();
+      const found=termFindItem(ds,target,ref);
+      let time='';
+      for(let i=parts.length-1;i>=0;i--){
+        if(parts[i].toLowerCase()==='at'){
+          const parsed=termParseTime(parts.slice(i+1).join(' '));
+          if(parsed){time=parsed;parts=parts.slice(0,i);break;}
+        }
+      }
+      if(!time){
+        const trailing=termPullTrailingTime(parts);
+        if(trailing.time){time=trailing.time;parts=trailing.parts;}
+      }
+      const text=parts.join(' ').trim()||found.item.text;
+      recordHistory();
+      found.item.text=text;
+      if(time)found.item.time=time;
+      logTaskEvent('task_edited',text,{where:describeTaskKey(found.key)});
+      save();renderWeek();
+      termPrint(`Edited #${found.n}: ${text}${time?' @ '+formatClockTime(time):''}`,'ok');
+      return;
+    }
+    case 'del':
+    case 'delete':
+    case 'rm':{
+      if(rest.length<3)throw new Error('Usage: del <date> <target> <#|text>');
+      const ds=termParseDate(rest[0]);
+      if(!ds)throw new Error('Invalid date: '+rest[0]);
+      const target=termResolveTarget(ds,rest[1]);
+      if(!target)throw new Error('Unknown target: '+rest[1]);
+      const found=termFindItem(ds,target,rest.slice(2).join(' '));
+      recordHistory();
+      found.items.splice(found.n-1,1);
+      logTaskEvent('task_deleted',found.item.text,{where:describeTaskKey(found.key)});
+      save();renderWeek();
+      termPrint(`Deleted #${found.n}: ${found.item.text}`,'ok');
+      return;
+    }
+    case 'focus':{
+      if(rest.length<3)throw new Error('Usage: focus <date> <target> <#|text>');
+      const ds=termParseDate(rest[0]);
+      if(!ds)throw new Error('Invalid date: '+rest[0]);
+      const target=termResolveTarget(ds,rest[1]);
+      if(!target)throw new Error('Unknown target: '+rest[1]);
+      const found=termFindItem(ds,target,rest.slice(2).join(' '));
+      startTaskTimer(found.item.text);
+      termPrint('Focusing: '+found.item.text,'ok');
+      return;
+    }
+    case 'open':
+    case 'close':{
+      if(rest.length<2)throw new Error('Usage: open|close <date> <target>');
+      const ds=termParseDate(rest[0]);
+      if(!ds)throw new Error('Invalid date: '+rest[0]);
+      const target=termResolveTarget(ds,rest[1]);
+      if(!target)throw new Error('Unknown target: '+rest[1]);
+      const open=cmd==='open';
+      if(open){openSlotKeys.add(target.key);expandedListKeys.add(target.key);}
+      else{openSlotKeys.delete(target.key);expandedListKeys.delete(target.key);}
+      wkStart=cfg.viewMode==='week'?getWkStart(new Date(ds+'T12:00:00')):dateOnly(new Date(ds+'T12:00:00'));
+      centerDayColumnOnRender=cfg.viewMode==='centered';
+      renderWeek();
+      const el=document.querySelector(`[data-key="${target.key}"]`);
+      if(el){el.classList.toggle('open',open);el.classList.toggle('collapsed',!open);el.scrollIntoView({block:'center'});}
+      termPrint(`${open?'Opened':'Closed'} ${ds} ${target.label}`);
+      return;
+    }
+    case 'letter':{
+      if(!rest.length)throw new Error('Usage: letter <date>');
+      const ds=termParseDate(rest[0]);
+      if(!ds)throw new Error('Invalid date: '+rest[0]);
+      const date=new Date(ds+'T12:00:00');
+      termPrint(`${ds} · ${data.dayOv[ds]?'Day '+data.dayOv[ds]+' (override)':isDayOff(date)?'homework day':'Day '+(getDayLetter(date)||'—')}`);
+      return;
+    }
+    case 'setletter':{
+      if(rest.length<2)throw new Error('Usage: setletter <date> A–G|auto');
+      const ds=termParseDate(rest[0]);
+      if(!ds)throw new Error('Invalid date: '+rest[0]);
+      const value=rest[1].toUpperCase();
+      if(value!=='AUTO'&&!/^[A-G]$/.test(value))throw new Error('Letter must be A–G or auto');
+      recordHistory();
+      if(value==='AUTO')delete data.dayOv[ds];
+      else data.dayOv[ds]=value;
+      logTaskEvent('day_letter',value==='AUTO'?'Auto':'Day '+value,{where:ds});
+      save();renderWeek();
+      termPrint(`Set ${ds} to ${value==='AUTO'?'auto':`Day ${value}`}`,'ok');
+      return;
+    }
+    case 'off':
+    case 'homework':
+    case 'school':
+    case 'weekend':{
+      if(!rest.length)throw new Error('Usage: off|school <date>');
+      const ds=termParseDate(rest[0]);
+      if(!ds)throw new Error('Invalid date: '+rest[0]);
+      const makeOff=cmd==='off'||cmd==='homework';
+      recordHistory();
+      setDayState(ds,makeOff);
+      termPrint(`${ds} is now ${makeOff?'a homework day':'a school day'}`,'ok');
+      return;
+    }
+    case 'goto':{
+      const ds=termParseDate(rest[0]||'today');
+      if(!ds)throw new Error('Invalid date: '+rest[0]);
+      const date=new Date(ds+'T12:00:00');
+      wkStart=cfg.viewMode==='week'?getWkStart(date):dateOnly(date);
+      centerDayColumnOnRender=cfg.viewMode==='centered';
+      renderWeek();
+      termPrint('Opened '+ds,'ok');
+      return;
+    }
+    case 'today':{
+      wkStart=cfg.viewMode==='week'?getWkStart(new Date()):dateOnly(new Date());
+      centerDayColumnOnRender=cfg.viewMode==='centered';
+      renderWeek();termPrint('Opened today','ok');return;
+    }
+    case 'next':
+    case 'prev':{
+      const step=cfg.viewMode==='week'?7:1;
+      wkStart=addDays(wkStart||dateOnly(new Date()),cmd==='next'?step:-step);
+      renderWeek();termPrint(cmd==='next'?'Next period':'Previous period','ok');return;
+    }
+    case 'calendar':{
+      openCalendar();termPrint('Calendar opened');return;
+    }
+    case 'auto':{
+      const sub=(rest.shift()||'list').toLowerCase();
+      if(sub==='list'){termAutoList();return;}
+      if(sub==='open'){openAutoModal();termPrint('Automations opened');return;}
+      if(sub==='toggle'){
+        const a=termFindAutomation(rest.join(' '));
+        a.enabled=!a.enabled;
+        save();renderAutoList();renderWeek();
+        termPrint(`Automation ${a.enabled?'enabled':'disabled'}`,'ok');return;
+      }
+      if(sub==='del'||sub==='delete'||sub==='rm'){
+        const a=termFindAutomation(rest.join(' '));
+        cfg.automations=(cfg.automations||[]).filter(x=>x!==a);
+        logTaskEvent('automation_deleted',a.text||'Automation',{where:a.where||a.type||''});
+        save();renderAutoList();renderWeek();
+        termPrint('Automation deleted','ok');return;
+      }
+      if(sub==='add'){termAutoAdd(rest);return;}
+      throw new Error('Unknown auto command: '+sub);
+    }
+    case 'class':{
+      const sub=(rest.shift()||'list').toLowerCase();
+      if(sub==='list'){
+        const periods=cfg.periods||[];
+        if(!periods.length){termPrint('No classes configured','dim');return;}
+        periods.slice().sort((a,b)=>a.num-b.num).forEach(p=>termPrint(`P${p.num} ${p.name}${p.isLab?' [lab: '+(p.labDays||[]).join(',')+']':''} ${p.color||''}`));
+        return;
+      }
+      if(sub==='add'){
+        const num=termParsePeriod(rest[0]);
+        if(!num)throw new Error('Usage: class add P3 "Name" [lab] [days A,B] [color #rrggbb]');
+        const {opts,r}=termTakeOptions(rest.slice(1),['days','color']);
+        const name=limitClassName(r[0]||'');
+        if(!name)throw new Error('Class name cannot be empty');
+        const lab=!!opts.lab&&!['off','false','0'].includes(String(opts.lab).toLowerCase());
+        const letters=lab?termParseLetters(opts.days||''):[];
+        for(const letter of letters){const status=getDoubleLabDayStatus(num,letter);if(!status.valid)throw new Error(`Lab ${letter}: ${status.reason}`);}
+        const color=/^#[0-9a-f]{6}$/i.test(opts.color||'')?opts.color:PCOLS[(num-1)%PCOLS.length];
+        if(!Array.isArray(cfg.periods))cfg.periods=[];
+        const existing=cfg.periods.find(p=>p.num===num);
+        const period=existing||{num};
+        Object.assign(period,{name,color,isLab:lab,labDays:letters});
+        if(!existing)cfg.periods.push(period);
+        save();renderWeek();
+        termPrint(`${existing?'Updated':'Added'} P${num}: ${name}`,'ok');return;
+      }
+      if(sub==='set'){
+        const period=termClassFind(rest[0]);
+        const field=(rest[1]||'').toLowerCase();
+        const value=rest.slice(2).join(' ').trim();
+        if(!value)throw new Error('Usage: class set P3 name|lab|days|color Value');
+        if(field==='name'){
+          period.name=limitClassName(value);
+          if(!period.name)throw new Error('Class name cannot be empty');
+        }else if(field==='lab'){
+          const on=['on','true','1','yes'].includes(value.toLowerCase());
+          period.isLab=on;
+          if(!on)period.labDays=[];
+        }else if(field==='days'){
+          const letters=termParseLetters(value);
+          for(const letter of letters){const status=getDoubleLabDayStatus(period.num,letter);if(!status.valid)throw new Error(`Lab ${letter}: ${status.reason}`);}
+          period.labDays=letters;
+          period.isLab=letters.length>0;
+        }else if(field==='color'){
+          if(!/^#[0-9a-f]{6}$/i.test(value))throw new Error('Color must be #rrggbb');
+          period.color=value;
+        }else throw new Error('Unknown class field: '+field);
+        save();renderWeek();
+        termPrint(`P${period.num} ${field} updated`,'ok');return;
+      }
+      if(sub==='del'){
+        const num=termParsePeriod(rest[0]);
+        if(!num)throw new Error('Usage: class del P3');
+        termClassFind(num);
+        cfg.periods=cfg.periods.filter(p=>p.num!==num);
+        save();renderWeek();
+        termPrint(`Deleted P${num}`,'ok');return;
+      }
+      throw new Error('Unknown class command: '+sub);
+    }
+    case 'bell':{
+      const value=(rest[0]||'').toLowerCase();
+      if(!['early','late'].includes(value))throw new Error('Usage: bell early|late');
+      cfg.school=value;save();renderWeek();termPrint('Bell schedule: '+value,'ok');return;
+    }
+    case 'time':{
+      const value=(rest[0]||'').toLowerCase();
+      if(!['12h','24h'].includes(value))throw new Error('Usage: time 12h|24h');
+      cfg.timeFormat=value;save();renderWeek();termPrint('Time format: '+value,'ok');return;
+    }
+    case 'theme':{
+      const value=(rest[0]||'').toLowerCase();
+      if(!['dark','light'].includes(value))throw new Error('Usage: theme dark|light');
+      cfg.theme=value;applyTheme(value);updateThemeButton();save();termPrint('Theme: '+value,'ok');return;
+    }
+    case 'settings':{openSettings();termPrint('Settings opened');return;}
+    case 'timer':{termTimer(rest);return;}
+    case 'history':{
+      const sub=(rest[0]||'').toLowerCase();
+      if(sub==='clear'){clearTaskHistory();termPrint('History clear requested');return;}
+      openTaskHistory();
+      if(['all','tasks','focus'].includes(sub))setHistoryFilter(sub);
+      termPrint('History opened');return;
+    }
+    case 'undo':{undoAction();termPrint('Undid last action');return;}
+    case 'redo':{redoAction();termPrint('Redid last action');return;}
+    case 'gpa':{
+      const sub=(rest.shift()||'list').toLowerCase();
+      if(sub==='list'){termGpaList();return;}
+      if(sub==='open'){openGpaCalculator();termPrint('GPA calculator opened');return;}
+      if(sub==='mode'){
+        const mode=(rest[0]||'').toLowerCase();
+        if(!['weighted','unweighted'].includes(mode))throw new Error('Usage: gpa mode weighted|unweighted');
+        setGpaMode(mode);termPrint('GPA mode: '+mode,'ok');return;
+      }
+      if(sub==='reset'){clearGpaCourses();termGpaList();termPrint('GPA courses cleared','ok');return;}
+      if(sub==='add'){
+        ensureGpaData();
+        if(data.gpaCourses.length>=MAX_GPA_COURSES)throw new Error('Maximum GPA courses reached');
+        const name=String(rest[0]||'').slice(0,60).trim();
+        const grade=String(rest[1]||'').toUpperCase();
+        const level=String(rest[2]||'regular').toLowerCase();
+        const credits=Number(rest[3]);
+        if(!name)throw new Error('Course name cannot be empty');
+        if(!MHS_GRADES.includes(grade))throw new Error('Grade must be one of '+MHS_GRADES.join(', '));
+        if(!MHS_GPA_LEVELS[level])throw new Error('Level must be regular, honors, or ap');
+        const course=createGpaCourse();
+        Object.assign(course,{name,grade,level,credits:Number.isFinite(credits)?Math.max(0,Math.min(20,credits)):5});
+        data.gpaCourses.push(course);
+        save();renderGpaCalculator();termPrint(`Added GPA course: ${name}`,'ok');return;
+      }
+      if(sub==='edit'){
+        const course=termGpaFind(rest[0]);
+        const field=(rest[1]||'').toLowerCase();
+        const value=rest.slice(2).join(' ').trim();
+        if(!value)throw new Error('Usage: gpa edit <#|id> name|grade|level|credits Value');
+        updateGpaCourse(course.id,field,value);
+        renderGpaCalculator();termPrint(`GPA #${data.gpaCourses.indexOf(course)+1} ${field} updated`,'ok');return;
+      }
+      if(sub==='del'||sub==='delete'||sub==='rm'){
+        const course=termGpaFind(rest[0]);
+        removeGpaCourse(course.id);termPrint('GPA course deleted','ok');return;
+      }
+      throw new Error('Unknown gpa command: '+sub);
+    }
+    case 'save':{saveCurrentState();termPrint('Saved locally and queued cloud sync','ok');return;}
+    case 'sync':{
+      saveCurrentState();
+      await enqueueSync(reconcileWithCloud);
+      termPrint('Cloud sync complete','ok');return;
+    }
+    case 'signout':{await signOut();return;}
+    case 'clearall':{clearAll();termPrint('Clear-all requested');return;}
+    default:throw new Error('Unknown command: '+cmd+'. Type ? for help.');
+  }
+}
 // ─── BOOT ────────────────────────────────────────────────
 async function boot(){
   updateThemeButton();

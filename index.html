@@ -1626,7 +1626,7 @@ function updateThemeButton(){
 // ── Screen helper ──────────────────────────────────────
 function showScreen(id){
   const termTab=document.getElementById('term-tab');
-  if(termTab) termTab.style.display=id==='screen-app'?'':'none';
+  if(termTab) termTab.style.display=id==='screen-app'?'block':'none';
   if(id!=='screen-app'){
     const termPanel=document.getElementById('term-panel');
     if(termPanel) termPanel.classList.remove('open');

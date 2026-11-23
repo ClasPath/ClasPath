@@ -2092,11 +2092,8 @@ function getDayTaskSummary(ds){
     });
   }
 
-  const visibleFreeKeys = off
-    ? [`${ds}-free`]
-    : letter
-      ? [`${ds}-lunch`,`${ds}-morning`,`${ds}-after`]
-      : [`${ds}-free`];
+  const visibleFreeKeys = [`${ds}-free`];
+  if(!off && letter) visibleFreeKeys.push(`${ds}-lunch`,`${ds}-morning`,`${ds}-after`);
   visibleFreeKeys.forEach(key => {
     const stats = getTaskStatsForList(data.freeTasks[key]);
     total += stats.total;
@@ -2867,6 +2864,7 @@ function renderWeek(){
 
       // Extra Tasks
       cont.appendChild(afterCard(ds));
+      if((data.freeTasks[`${ds}-free`]||[]).length) cont.appendChild(freeCard(ds,`${svgIcon('home','icon-sm')} Free Tasks`));
     }
 
     col.appendChild(cont);
@@ -4528,6 +4526,7 @@ function termResolveTarget(ds,token){
   const a=aliases[t];
   if(!a)return null;
   if(off)return {list:'freeTasks',key:`${ds}-free`,classNum:null,label:'free'};
+  if(a==='free'&&getDayLetter(date))return {list:'freeTasks',key:`${ds}-after`,classNum:null,label:'after'};
   return {list:'freeTasks',key:`${ds}-${a}`,classNum:null,label:a};
 }
 function termStoreFor(target){return target.list==='tasks'?data.tasks:data.freeTasks;}

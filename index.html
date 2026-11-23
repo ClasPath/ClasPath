@@ -489,10 +489,12 @@
     .term-panel.open{transform:translateX(0);visibility:visible;pointer-events:auto;transition:transform .25s cubic-bezier(.2,.8,.2,1),visibility 0s}
     .term-head{display:flex;align-items:center;gap:6px;padding:10px 12px;border-bottom:1px solid var(--border);background:var(--surface2)}
     .term-title{flex:1;font:700 13px var(--f);color:var(--text)}
-    .term-btn{border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:7px;min-width:28px;height:28px;cursor:pointer;font:700 12px var(--f);transition:background .15s,color .15s,border-color .15s}
+    .term-btn{border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:7px;min-width:28px;height:28px;cursor:pointer;font:700 12px var(--f);transition:background .15s,color .15s,border-color .15s;display:inline-flex;align-items:center;justify-content:center}
     .term-btn:hover{background:var(--pl);color:var(--primary)}
-    .term-btn-clear{color:var(--ts);border-style:dashed;font-weight:600}
+    .term-btn-clear{color:var(--ts);border-style:dashed;font-weight:600;font-size:11px;padding:0 8px;min-width:auto}
     .term-btn-clear:hover{background:var(--surface2);border-color:var(--ts);color:var(--text)}
+    .term-btn-close{font-size:16px;line-height:1;color:var(--ts)}
+    .term-btn-close:hover{color:var(--danger);border-color:rgba(217,48,37,.35);background:var(--danger-bg)}
     .term-out{flex:1;overflow-y:auto;padding:12px;background:var(--bg);font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--text);white-space:pre-wrap;word-break:break-word}
     .term-line{margin:0 0 4px}
     .term-line.err{color:var(--danger)}
@@ -510,12 +512,17 @@
     /* ── Responsive ── */
     @media(max-width:640px){
       .ocard{padding:24px 16px}
-      .hwk{display:none}
+      .hwk{display:block;max-width:42vw;font-size:11px;padding:2px 8px}
       .tdb{display:none}
-      .app-header{flex-wrap:wrap;padding:6px 8px}
-      .hl{flex-basis:100%}
-      .hr{width:100%;justify-content:center}
-      .toolbar-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px;width:100%}
+      .app-header{flex-wrap:wrap;padding:8px 10px calc(8px + env(safe-area-inset-top,0px));gap:8px;align-items:stretch}
+      .hl{flex:1 1 100%;justify-content:space-between;gap:8px}
+      .hls{gap:6px}
+      .hln{font-size:16px}
+      .hr{width:100%;justify-content:flex-start;gap:6px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px}
+      .hr::-webkit-scrollbar{display:none}
+      .toolbar-row{display:inline-flex;flex-wrap:nowrap;align-items:center;gap:4px;width:auto;flex:0 0 auto}
+      .tool-group{flex:0 0 auto}
+      .view-switch{flex:0 0 auto}
       .md{padding:20px 16px}
       .mda{justify-content:stretch}
       .mda .btn{flex:1;justify-content:center}
@@ -534,8 +541,14 @@
       .dcont{overflow:visible}
       .wnb,.icb{width:36px;height:36px}
       .tool-group .icb{width:32px;height:32px}
-      .save-btn,.active-timer{min-height:36px}
+      .save-btn,.active-timer{min-height:36px;flex:0 0 auto}
       .view-option{min-height:34px;padding:7px 10px}
+      .term-panel{top:auto;left:0;right:0;bottom:0;width:100%;max-height:min(72dvh,560px);border-right:none;border-top:1px solid var(--border);border-radius:16px 16px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.2);transform:translateY(100%);transition:transform .25s cubic-bezier(.2,.8,.2,1),visibility 0s linear .25s}
+      .term-panel.open{transform:translateY(0);transition:transform .25s cubic-bezier(.2,.8,.2,1),visibility 0s}
+      .term-head{padding:12px 12px 10px}
+      .term-btn{min-width:34px;height:34px}
+      .term-out{padding:10px 12px}
+      .term-in-row{padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px))}
       .day-toggle button{min-width:32px;min-height:32px}
       .slot-hd{min-height:38px}
       .tki{padding:5px 0}
@@ -562,11 +575,11 @@
     }
     @media(max-width:400px){
       .ocard{padding:20px 12px}
-      .app-header{flex-wrap:wrap;padding:6px 8px}
-      .hl{flex-basis:100%}
+      .app-header{padding:8px 8px calc(8px + env(safe-area-inset-top,0px))}
+      .hl{gap:6px}
+      .hwk{max-width:38vw;font-size:10px}
       .hr{gap:4px}
-      #active-timer{width:52px;min-height:36px;justify-content:center;padding:3px;gap:3px;font-size:9px}
-      .hr:has(#active-timer.visible) .calendar-btn + .icb{display:none}
+      #active-timer{min-width:52px;min-height:36px;justify-content:center;padding:3px 6px;gap:3px;font-size:9px}
       #user-pill{width:36px;max-width:36px;height:36px;padding:0;justify-content:center}
       #user-pill-label{display:none}
       .view-option{padding:5px 9px;font-size:10px}
@@ -751,7 +764,7 @@
         <span class="sync-dot" id="sync-dot"></span>
         <span id="user-pill-label">…</span>
       </div>
-      <button class="icb term-btn-top" id="term-tab" title="Command terminal" aria-label="Command terminal" onclick="termToggle()"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 9l3 3-3 3M12.5 15H17"/></svg></button>
+      <button class="icb term-btn-top" id="term-tab" title="Command terminal" aria-label="Command terminal" aria-controls="term-panel" aria-expanded="false" onclick="termToggle()"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 9l3 3-3 3M12.5 15H17"/></svg></button>
       </div>
     </div>
   </header>
@@ -990,11 +1003,12 @@
   </div>
 </div>
 
-<div class="term-panel" id="term-panel">
+<div class="term-panel" id="term-panel" aria-hidden="true">
   <div class="term-head">
     <span class="term-title">ClasPath terminal</span>
     <button class="term-btn" type="button" title="All commands" onclick="termHelp()">?</button>
-    <button class="term-btn term-btn-clear" type="button" title="Clear terminal output" onclick="termClear()">x</button>
+    <button class="term-btn term-btn-clear" type="button" title="Clear terminal output" aria-label="Clear terminal output" onclick="termClear()">Clear</button>
+    <button class="term-btn term-btn-close" type="button" title="Close terminal" aria-label="Close terminal" onclick="termClose()">×</button>
   </div>
   <div class="term-out" id="term-out"></div>
   <form class="term-in-row" onsubmit="event.preventDefault();termSubmit()">
@@ -1549,10 +1563,7 @@ function stopCloudWatch(){
 // ── Sign out ───────────────────────────────────────────
 async function signOut(){
   if(!confirm('Sign out of your account?')) return false;
-  const termPanel=document.getElementById('term-panel');
-  if(termPanel)termPanel.classList.remove('open');
-  const termTab=document.getElementById('term-tab');
-  if(termTab)termTab.classList.remove('active');
+  termSetOpen(false);
   if(screenTransitionTimer){clearTimeout(screenTransitionTimer);screenTransitionTimer=null;}
   document.querySelectorAll('.mo').forEach(modal=>modal.classList.remove('open'));
   document.querySelectorAll('.color-palette').forEach(palette=>palette.remove());
@@ -3542,7 +3553,7 @@ function renderTasks(el,key){
   tasks.forEach(t=>{
     const li=document.createElement('li'); li.className='tki';
     const timeLabel=t.time?`<span class="task-time">${formatClockTime(t.time)}</span>`:'';
-    li.innerHTML=`<div class="tkc${t.done?' done':''}" onclick="toggleTask('${key}',${t.id})" tabindex="0"></div>${timeLabel}${taskClassBadge(t)}<span class="tkt${t.done?' done':''}">${esc(t.text)}</span><span class="task-tools"><button class="task-settings-btn" onclick="openTaskEditor('task','${key}',${t.id})" title="Task options">${svgIcon('gear','icon-sm')}</button></span>`;
+    li.innerHTML=`<div class="tkc${t.done?' done':''}" onclick="toggleTask('${key}',${t.id})" tabindex="0"></div>${timeLabel}<span class="tkt${t.done?' done':''}">${esc(t.text)}</span><span class="task-tools"><button class="task-settings-btn" onclick="openTaskEditor('task','${key}',${t.id})" title="Task options">${svgIcon('gear','icon-sm')}</button></span>`;
     el.appendChild(li);
   });
 }
@@ -3776,6 +3787,12 @@ function initSettings(){
     applySettingsFromUI();
   }));
   document.querySelectorAll('.mo').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)closeMod(o.id)}));
+  document.addEventListener('keydown',e=>{
+    if(e.key!=='Escape')return;
+    const openModal=[...document.querySelectorAll('.mo.open')].pop();
+    if(openModal){closeMod(openModal.id);return;}
+    if(document.getElementById('term-panel')?.classList.contains('open'))termClose();
+  });
 }
 function openSettings(){
   document.querySelectorAll('#ss-school .st').forEach(t=>t.classList.toggle('active',t.dataset.t===cfg.school));
@@ -4375,14 +4392,23 @@ function termPrint(text,kind){
   while(out.children.length>500)out.removeChild(out.firstChild);
   out.scrollTop=out.scrollHeight;
 }
-function termToggle(){
+function termSetOpen(open){
   const panel=document.getElementById('term-panel');
   if(!panel)return;
-  const open=panel.classList.toggle('open');
+  panel.classList.toggle('open',open);
+  panel.setAttribute('aria-hidden',open?'false':'true');
   const tab=document.getElementById('term-tab');
-  if(tab)tab.classList.toggle('active',open);
+  if(tab){
+    tab.classList.toggle('active',open);
+    tab.setAttribute('aria-expanded',open?'true':'false');
+  }
   if(open){const input=document.getElementById('term-input');if(input)input.focus();}
 }
+function termToggle(){
+  const panel=document.getElementById('term-panel');
+  termSetOpen(!(panel&&panel.classList.contains('open')));
+}
+function termClose(){termSetOpen(false);}
 function termClear(){
   const out=document.getElementById('term-out');
   if(out)out.innerHTML='';

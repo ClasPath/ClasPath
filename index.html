@@ -4336,7 +4336,7 @@ function termHelp(){
     '',
     'FOCUS / HISTORY / GPA',
     '  timer  ·  timer timer 25 0  ·  timer stopwatch  ·  timer alarm 07:00',
-    '  timer start|pause|reset  ·  history [all|tasks|focus]  ·  history clear',
+    '  timer start|pause|reset  ·  view history|log  ·  history [all|tasks|focus|clear]',
     '  gpa list  ·  gpa mode weighted|unweighted',
     '  gpa add "Algebra II" A honors 4  ·  gpa edit <#|id> name|grade|level|credits Value',
     '  gpa del <#|id>  ·  gpa reset'
@@ -4359,6 +4359,8 @@ function termTokenize(str){
       if(ch===quote)quote=null;
       else cur+=ch;
     }else if(ch==='"'||ch==="'"){
+      if(cur&&(ch==='"'||/^p\d{1,2}$/i.test(cur))){tokens.push(cur);cur='';}
+      else if(cur){cur+=ch;continue;}
       quote=ch;
     }else if(/\s/.test(ch)){
       if(cur){tokens.push(cur);cur='';}
@@ -4727,6 +4729,7 @@ async function termRun(raw){
     case 'view':{
       const mode=(rest[0]||'').toLowerCase();
       if(['week','centered','upcoming'].includes(mode)){setViewMode(mode);termPrint('View: '+mode,'ok');return;}
+      if(mode==='history'||mode==='log'){openTaskHistory();termPrint('History opened');return;}
       const ds=termParseDate(mode);
       if(!ds)throw new Error('Usage: view week|centered|upcoming|<date>');
       termListDate(ds);
@@ -4910,9 +4913,12 @@ async function termRun(raw){
         return;
       }
       if(sub==='add'){
-        const num=termParsePeriod(rest[0]);
+        const prefix=String(rest[0]||'').match(/^(p\d{1,2})(.*)$/i);
+        let classArgs=rest.slice(1);
+        if(prefix&&prefix[2].trim())classArgs=[prefix[2].trim(),...classArgs];
+        const num=termParsePeriod(prefix?prefix[1]:rest[0]);
         if(!num)throw new Error('Usage: class add P3 "Name" [lab] [days A,B] [color #rrggbb]');
-        const {opts,r}=termTakeOptions(rest.slice(1),['days','color']);
+        const {opts,rest:r}=termTakeOptions(classArgs,['days','color']);
         const name=limitClassName(r[0]||'');
         if(!name)throw new Error('Class name cannot be empty');
         const lab=!!opts.lab&&!['off','false','0'].includes(String(opts.lab).toLowerCase());
@@ -4978,6 +4984,7 @@ async function termRun(raw){
     }
     case 'settings':{openSettings();termPrint('Settings opened');return;}
     case 'timer':{termTimer(rest);return;}
+    case 'log':{openTaskHistory();termPrint('History opened');return;}
     case 'history':{
       const sub=(rest[0]||'').toLowerCase();
       if(sub==='clear'){clearTaskHistory();termPrint('History clear requested');return;}

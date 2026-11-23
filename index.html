@@ -980,6 +980,12 @@ const supa = supabase.createClient(SUPA_URL, SUPA_KEY);
 
 let supaUser = null;   // current auth user, or null
 let syncTimer = null;  // debounce handle for cloud sync
+let syncChain = Promise.resolve();
+let lastAppliedRemoteAt = null;
+let lastSavedState = null;
+let localDirty = false;
+let pollTimer = null;
+let realtimeChannel = null;
 
 // ── Auth UI helpers ────────────────────────────────────
 function switchAuthTab(tab){
@@ -1095,13 +1101,169 @@ async function submitAuth(){
 }
 
 // ── Called after successful sign-in ───────────────────
-function mergeTaskLists(cloudList, localList){
-  const byId = new Map();
-  (Array.isArray(cloudList) ? cloudList : []).forEach(item => { if(item && item.id != null) byId.set(item.id, item); });
-  (Array.isArray(localList) ? localList : []).forEach(item => { if(item && item.id != null && !byId.has(item.id)) byId.set(item.id, item); });
-  return [...byId.values()];
-}
+const MAX_DELETED_IDS = 1000;
+const VALUE_MAPS = ['autoDone','dayModes','dayOv','dayOff','dayOn'];
 
+function defaultCfg(){ return { school:'early', periods:[], automations:[], viewMode:'week', timeFormat:'12h' }; }
+function defaultData(){
+  return {
+    tasks:{}, freeTasks:{}, autoDone:{}, dayModes:{}, dayOv:{}, dayOff:{}, dayOn:{},
+    taskHistory:[], deletedIds:{}, deletedKeys:{}, keyTimes:{}, gpaCourses:[], gpaMode:'weighted'
+  };
+}
+function ensureSyncMeta(target){
+  ['deletedIds','deletedKeys','keyTimes'].forEach(key => {
+    if(!target[key] || typeof target[key] !== 'object' || Array.isArray(target[key])) target[key]={};
+  });
+  return target;
+}
+function normalizeStateData(value){
+  const result = { ...defaultData(), ...(value || {}) };
+  return ensureSyncMeta(result);
+}
+function normalizeStateCfg(value){
+  const result = { ...defaultCfg(), ...(value || {}) };
+  if(!Array.isArray(result.automations)) result.automations=[];
+  return result;
+}
+function cloneState(){ return JSON.parse(JSON.stringify({cfg,data})); }
+function stampMapValue(value){
+  const result = {};
+  if(Array.isArray(value)){
+    value.forEach(id => { if(id != null) result[String(id)] = Date.now(); });
+  } else if(value && typeof value === 'object'){
+    Object.entries(value).forEach(([id, at]) => { if(id) result[String(id)] = Number(at) || Date.now(); });
+  }
+  return result;
+}
+function mergeStampMaps(...sources){
+  const merged = {};
+  sources.forEach(source => {
+    Object.entries(stampMapValue(source)).forEach(([id, at]) => { merged[id] = Math.max(merged[id] || 0, at); });
+  });
+  let entries = Object.entries(merged);
+  if(entries.length > MAX_DELETED_IDS) entries = entries.sort((a,b) => a[1] - b[1]).slice(entries.length - MAX_DELETED_IDS);
+  return Object.fromEntries(entries);
+}
+function stampAt(map, key){ return Number(map?.[key]) || 0; }
+function itemTime(item){ return Number(item?.updatedAt) || 0; }
+function idStamp(type, id){ return `${type}:${id}`; }
+function keyStamp(name, key){ return `${name}:${key}`; }
+function indexItems(value){
+  const result = new Map();
+  const add = item => { if(item && item.id != null) result.set(String(item.id), item); };
+  if(Array.isArray(value)) value.forEach(add);
+  else if(value && typeof value === 'object') Object.values(value).forEach(list => (Array.isArray(list) ? list : []).forEach(add));
+  return result;
+}
+function locateItems(value){
+  const result = new Map();
+  Object.entries(value || {}).forEach(([key, list]) => {
+    (Array.isArray(list) ? list : []).forEach(item => {
+      if(item && item.id != null) result.set(String(item.id), {item,key});
+    });
+  });
+  return result;
+}
+function mergeItemLists(cloudValue, localValue, type, tombstones){
+  const cloudItems = indexItems(cloudValue);
+  const localItems = indexItems(localValue);
+  const result = [];
+  new Set([...cloudItems.keys(), ...localItems.keys()]).forEach(id => {
+    const c = cloudItems.get(id), l = localItems.get(id);
+    const chosen = !c ? l : !l ? c : (itemTime(l) >= itemTime(c) ? l : c);
+    if(stampAt(tombstones, idStamp(type, id)) >= itemTime(chosen)) return;
+    result.push(chosen);
+  });
+  return result;
+}
+function mergeTaskCollections(cloudTasks, cloudFreeTasks, localTasks, localFreeTasks, tombstones){
+  const cloudItems = new Map([...locateItems(cloudTasks), ...locateItems(cloudFreeTasks)]);
+  const localItems = new Map([...locateItems(localTasks), ...locateItems(localFreeTasks)]);
+  const tasks = {}, freeTasks = {};
+  new Set([...cloudItems.keys(), ...localItems.keys()]).forEach(id => {
+    const c = cloudItems.get(id), l = localItems.get(id);
+    const chosen = !c ? l : !l ? c : (itemTime(l.item) >= itemTime(c.item) ? l : c);
+    if(stampAt(tombstones, idStamp('task', id)) >= itemTime(chosen.item)) return;
+    const target = /_P\d+$/.test(chosen.key) ? tasks : freeTasks;
+    if(!target[chosen.key]) target[chosen.key] = [];
+    target[chosen.key].push(chosen.item);
+  });
+  return { tasks, freeTasks };
+}
+function mergeValueMaps(name, cloudMap, localMap, cloudTimes, localTimes, deletedKeys){
+  const result = {};
+  new Set([...Object.keys(cloudMap || {}), ...Object.keys(localMap || {})]).forEach(key => {
+    const stamp = keyStamp(name, key);
+    const c = cloudMap?.[key], l = localMap?.[key];
+    const newest = Math.max(stampAt(cloudTimes, stamp), stampAt(localTimes, stamp));
+    if(stampAt(deletedKeys, stamp) >= newest) return;
+    let value;
+    if(c === undefined) value = l;
+    else if(l === undefined) value = c;
+    else value = stampAt(localTimes, stamp) >= stampAt(cloudTimes, stamp) ? l : c;
+    if(value !== undefined) result[key] = value;
+  });
+  return result;
+}
+function applyLocalDiff(previous){
+  ensureSyncMeta(data);
+  const ts = Date.now();
+  const prev = previous || cloneState();
+  const prevData = normalizeStateData(prev.data);
+  const prevCfg = normalizeStateCfg(prev.cfg);
+  const deletedIds = data.deletedIds, deletedKeys = data.deletedKeys, keyTimes = data.keyTimes;
+  const liveTaskIds = new Set([...indexItems(data.tasks).keys(), ...indexItems(data.freeTasks).keys()]);
+
+  ['tasks','freeTasks'].forEach(name => {
+    const before = indexItems(prevData[name]);
+    const after = indexItems(data[name]);
+    after.forEach((item, id) => {
+      const old = before.get(id);
+      if(!old || JSON.stringify(old) !== JSON.stringify(item)) item.updatedAt = ts;
+      delete deletedIds[idStamp('task', id)];
+    });
+    before.forEach((_, id) => { if(!liveTaskIds.has(id)) deletedIds[idStamp('task', id)] = ts; });
+  });
+
+  const gpaAfter = indexItems(data.gpaCourses), gpaBefore = indexItems(prevData.gpaCourses);
+  gpaAfter.forEach((item, id) => {
+    const old = gpaBefore.get(id);
+    if(!old || JSON.stringify(old) !== JSON.stringify(item)) item.updatedAt = ts;
+    delete deletedIds[idStamp('gpa', id)];
+  });
+  gpaBefore.forEach((_, id) => { if(!gpaAfter.has(id)) deletedIds[idStamp('gpa', id)] = ts; });
+
+  const autoAfter = indexItems(cfg.automations), autoBefore = indexItems(prevCfg.automations);
+  autoAfter.forEach((item, id) => {
+    const old = autoBefore.get(id);
+    if(!old || JSON.stringify(old) !== JSON.stringify(item)) item.updatedAt = ts;
+    delete deletedIds[idStamp('automation', id)];
+  });
+  autoBefore.forEach((_, id) => { if(!autoAfter.has(id)) deletedIds[idStamp('automation', id)] = ts; });
+
+  VALUE_MAPS.forEach(name => {
+    const before = prevData[name] || {}, after = data[name] || {};
+    new Set([...Object.keys(before), ...Object.keys(after)]).forEach(key => {
+      if(JSON.stringify(before[key]) === JSON.stringify(after[key])) return;
+      const stamp = keyStamp(name, key);
+      if(after[key] === undefined){
+        deletedKeys[stamp] = ts;
+        delete keyTimes[stamp];
+      } else {
+        keyTimes[stamp] = ts;
+        delete deletedKeys[stamp];
+      }
+    });
+  });
+
+  new Set([...Object.keys(prevCfg), ...Object.keys(cfg)]).forEach(key => {
+    if(key === 'automations') return;
+    if(JSON.stringify(prevCfg[key]) === JSON.stringify(cfg[key])) return;
+    keyTimes[keyStamp('cfg', key)] = ts;
+  });
+  if(prevData.gpaMode !== data.gpaMode) keyTimes[keyStamp('gpaMode', 'value')] = ts;
+}
 function mergeTaskHistory(cloudList, localList){
   const byId = new Map();
   [...(Array.isArray(cloudList)?cloudList:[]), ...(Array.isArray(localList)?localList:[])].forEach(item => {
@@ -1115,44 +1277,42 @@ function mergeTaskHistory(cloudList, localList){
 }
 
 function mergeStoredState(localState, cloudState){
-  const mergeMaps = (cloudMap, localMap) => {
-    const merged = {};
-    const keys = new Set([...Object.keys(cloudMap || {}), ...Object.keys(localMap || {})]);
-    keys.forEach(key => {
-      const cloudValue = cloudMap?.[key];
-      const localValue = localMap?.[key];
-
-      if(Array.isArray(cloudValue) || Array.isArray(localValue)) {
-        merged[key] = mergeTaskLists(cloudValue, localValue);
-        return;
-      }
-
-      merged[key] = localValue !== undefined ? localValue : cloudValue;
-    });
-    return merged;
-  };
+  const localCfg = normalizeStateCfg(localState?.cfg);
+  const cloudCfg = normalizeStateCfg(cloudState?.cfg);
+  const local = normalizeStateData(localState?.data);
+  const cloud = normalizeStateData(cloudState?.data);
+  const deletedIds = mergeStampMaps(cloud.deletedIds, local.deletedIds);
+  const deletedKeys = mergeStampMaps(cloud.deletedKeys, local.deletedKeys);
+  const keyTimes = mergeStampMaps(cloud.keyTimes, local.keyTimes);
+  const cTimes = cloud.keyTimes, lTimes = local.keyTimes;
+  const taskLists = mergeTaskCollections(cloud.tasks, cloud.freeTasks, local.tasks, local.freeTasks, deletedIds);
 
   const mergedData = {
-    tasks: mergeMaps(cloudState?.data?.tasks, localState?.data?.tasks),
-    freeTasks: mergeMaps(cloudState?.data?.freeTasks, localState?.data?.freeTasks),
-    autoDone: mergeMaps(cloudState?.data?.autoDone, localState?.data?.autoDone),
-    dayModes: mergeMaps(cloudState?.data?.dayModes, localState?.data?.dayModes),
-    dayOv: mergeMaps(cloudState?.data?.dayOv, localState?.data?.dayOv),
-    dayOff: mergeMaps(cloudState?.data?.dayOff, localState?.data?.dayOff),
-    dayOn: mergeMaps(cloudState?.data?.dayOn, localState?.data?.dayOn),
-    taskHistory: mergeTaskHistory(cloudState?.data?.taskHistory, localState?.data?.taskHistory),
-    gpaCourses: Array.isArray(localState?.data?.gpaCourses)
-      ? localState.data.gpaCourses
-      : (Array.isArray(cloudState?.data?.gpaCourses) ? cloudState.data.gpaCourses : []),
-    gpaMode: localState?.data?.gpaMode || cloudState?.data?.gpaMode || 'weighted',
+    deletedIds,
+    deletedKeys,
+    keyTimes,
+    tasks: taskLists.tasks,
+    freeTasks: taskLists.freeTasks,
+    autoDone: mergeValueMaps('autoDone', cloud.autoDone, local.autoDone, cTimes, lTimes, deletedKeys),
+    dayModes: mergeValueMaps('dayModes', cloud.dayModes, local.dayModes, cTimes, lTimes, deletedKeys),
+    dayOv: mergeValueMaps('dayOv', cloud.dayOv, local.dayOv, cTimes, lTimes, deletedKeys),
+    dayOff: mergeValueMaps('dayOff', cloud.dayOff, local.dayOff, cTimes, lTimes, deletedKeys),
+    dayOn: mergeValueMaps('dayOn', cloud.dayOn, local.dayOn, cTimes, lTimes, deletedKeys),
+    taskHistory: mergeTaskHistory(cloud.taskHistory, local.taskHistory),
+    gpaCourses: mergeItemLists(cloud.gpaCourses, local.gpaCourses, 'gpa', deletedIds),
+    gpaMode: stampAt(lTimes, keyStamp('gpaMode', 'value')) >= stampAt(cTimes, keyStamp('gpaMode', 'value'))
+      ? local.gpaMode : cloud.gpaMode,
   };
 
-  const mergedCfg = {
-    ...(cloudState?.cfg || {}),
-    ...(localState?.cfg || {}),
-  };
+  const mergedCfg = normalizeStateCfg(cloudCfg);
+  new Set([...Object.keys(cloudCfg), ...Object.keys(localCfg)]).forEach(key => {
+    if(key === 'automations') return;
+    const stamp = keyStamp('cfg', key);
+    mergedCfg[key] = stampAt(lTimes, stamp) >= stampAt(cTimes, stamp) ? localCfg[key] : cloudCfg[key];
+  });
+  mergedCfg.automations = mergeItemLists(cloudCfg.automations, localCfg.automations, 'automation', deletedIds);
 
-  return { cfg: mergedCfg || cfg, data: mergedData };
+  return { cfg: mergedCfg, data: mergedData };
 }
 
 async function onSignedIn(user){
@@ -1167,110 +1327,144 @@ async function onSignedIn(user){
   } catch(e){}
 
   if(localState){
-    cfg = { ...cfg, ...localState.cfg };
-    data = {
-      tasks:{},
-      freeTasks:{},
-      autoDone:{},
-      dayModes:{},
-      dayOv:{},
-      dayOff:{},
-      dayOn:{},
-      taskHistory:[],
-      gpaCourses:[],
-      gpaMode:'weighted',
-      ...localState.data
-    };
+    cfg = normalizeStateCfg(localState.cfg);
+    data = normalizeStateData(localState.data);
+  } else {
+    cfg = normalizeStateCfg(cfg);
+    data = normalizeStateData(data);
   }
+  lastSavedState = cloneState();
 
   const cloudState = await loadFromCloud();
 
   if(cloudState){
-    const merged = mergeStoredState(localState, cloudState);
+    const merged = mergeStoredState(lastSavedState, cloudState);
     cfg = merged.cfg;
     data = merged.data;
-    try{ localStorage.setItem(storageKey, JSON.stringify({cfg, data})); }catch(e){}
+    lastAppliedRemoteAt = cloudState.updatedAt || null;
+    localDirty = true;
+    commitState();
   }
 
   if(!localState && !cloudState){
-    // Brand new user — show onboarding
+    lastSavedState = cloneState();
     showScreen('screen-onboard');
     initOnboarding();
+    startCloudWatch();
     return;
   }
 
   bindBackButtons();
   launch();
+  startCloudWatch();
+  if(cloudState) scheduleSyncToCloud();
 }
 
 // ── Cloud sync ─────────────────────────────────────────
-// Debounced: every save() schedules a cloud push 2s later
+function enqueueSync(task){
+  syncChain = syncChain.then(task).catch(err => {
+    console.warn('Sync failed:', err);
+    setSyncDot('err');
+  });
+  return syncChain;
+}
 function scheduleSyncToCloud(){
   if(!supaUser) return;
   clearTimeout(syncTimer);
-  syncTimer = setTimeout(syncToCloud, 2000);
   setSyncDot('syncing');
+  syncTimer = setTimeout(() => enqueueSync(reconcileWithCloud), 1200);
 }
-
-async function syncToCloud(){
-  if(!supaUser) return;
-  try {
-    const { error } = await supa
-      .from('user_data')
-      .upsert({ id: supaUser.id, cfg, data, updated_at: new Date().toISOString() }, { onConflict: 'id' });
-    if(error) throw error;
-    setSyncDot('ok');
-  } catch(err){
-    console.warn('Sync failed:', err.message);
-    setSyncDot('err');
-  }
-}
-
-async function loadFromCloud(){
+async function fetchCloudState(){
   if(!supaUser) return null;
+  const { data: row, error } = await supa
+    .from('user_data')
+    .select('cfg, data, updated_at')
+    .eq('id', supaUser.id)
+    .maybeSingle();
+  if(error) throw error;
+  if(!row) return null;
+  return {
+    cfg: normalizeStateCfg(row.cfg),
+    data: normalizeStateData(row.data),
+    updatedAt: row.updated_at || null
+  };
+}
+async function loadFromCloud(){
   try {
-    const { data: rows, error } = await supa
-      .from('user_data')
-      .select('cfg, data')
-      .eq('id', supaUser.id)
-      .single();
-    if(error || !rows) return null;
-
-    const remoteCfg = rows.cfg ? { ...cfg, ...rows.cfg } : { ...cfg };
-    if(!remoteCfg.automations) remoteCfg.automations = [];
-
-    const remoteData = rows.data ? {
-      tasks:{},
-      freeTasks:{},
-      autoDone:{},
-      dayModes:{},
-      dayOv:{},
-      dayOff:{},
-      dayOn:{},
-      taskHistory:[],
-      gpaCourses:[],
-      gpaMode:'weighted',
-      ...rows.data
-    } : {
-      tasks:{},
-      freeTasks:{},
-      autoDone:{},
-      dayModes:{},
-      dayOv:{},
-      dayOff:{},
-      dayOn:{},
-      taskHistory:[],
-      gpaCourses:[],
-      gpaMode:'weighted',
-    };
-
-    return {
-      cfg: remoteCfg,
-      data: remoteData,
-    };
+    return await fetchCloudState();
   } catch(err){
     console.warn('Cloud load failed:', err.message);
     return null;
+  }
+}
+async function pushCloudState(){
+  if(!supaUser) return;
+  const { data: row, error } = await supa
+    .from('user_data')
+    .upsert({ id: supaUser.id, cfg, data, updated_at: new Date().toISOString() }, { onConflict: 'id' })
+    .select('updated_at')
+    .maybeSingle();
+  if(error) throw error;
+  lastAppliedRemoteAt = row?.updated_at || null;
+  localDirty = false;
+  setSyncDot('ok');
+}
+async function reconcileWithCloud(){
+  if(!supaUser) return;
+  let didMerge = false;
+  try {
+    const remote = await fetchCloudState();
+    if(remote && remote.updatedAt !== lastAppliedRemoteAt){
+      const before = JSON.stringify({cfg,data});
+      const merged = mergeStoredState({cfg,data}, remote);
+      if(JSON.stringify(merged) !== before){
+        cfg = merged.cfg;
+        data = merged.data;
+        commitState();
+        renderAfterRemoteMerge();
+        didMerge = true;
+      }
+      lastAppliedRemoteAt = remote.updatedAt;
+    }
+    if(didMerge || localDirty) await pushCloudState();
+  } catch(err){
+    console.warn('Sync failed:', err.message || err);
+    setSyncDot('err');
+  }
+}
+function renderAfterRemoteMerge(){
+  try{ renderWeek(); }catch(e){}
+  if(document.getElementById('gpamod')?.classList.contains('open')) renderGpaCalculator();
+  if(document.getElementById('automod')?.classList.contains('open')) renderAutoList();
+}
+function onFocusSync(){ if(supaUser) enqueueSync(reconcileWithCloud); }
+function onVisibilitySync(){ if(!document.hidden) onFocusSync(); }
+function startCloudWatch(){
+  stopCloudWatch();
+  pollTimer = setInterval(onFocusSync, 15000);
+  window.addEventListener('focus', onFocusSync);
+  document.addEventListener('visibilitychange', onVisibilitySync);
+  try {
+    realtimeChannel = supa.channel(`claspath:${supaUser.id}`)
+      .on('postgres_changes', {
+        event:'*',
+        schema:'public',
+        table:'user_data',
+        filter:`id=eq.${supaUser.id}`
+      }, payload => {
+        if(!payload?.new?.updated_at || payload.new.updated_at !== lastAppliedRemoteAt) enqueueSync(reconcileWithCloud);
+      })
+      .subscribe();
+  } catch(e){}
+}
+function stopCloudWatch(){
+  clearInterval(pollTimer);
+  pollTimer = null;
+  window.removeEventListener('focus', onFocusSync);
+  document.removeEventListener('visibilitychange', onVisibilitySync);
+  if(realtimeChannel){
+    try{ supa.removeChannel(realtimeChannel); }catch(e){}
+    realtimeChannel = null;
   }
 }
 
@@ -1282,6 +1476,10 @@ async function signOut(){
   document.querySelectorAll('.color-palette').forEach(palette=>palette.remove());
   if(timerHandle){clearInterval(timerHandle);timerHandle=null;}
   timerActive=false;
+  clearTimeout(syncTimer);
+  stopCloudWatch();
+  lastAppliedRemoteAt = null;
+  localDirty = false;
 
   try {
     await supa.auth.signOut();
@@ -1478,6 +1676,9 @@ let data = {
   dayOff:{},       // "YYYY-MM-DD" → true  (explicit homework override)
   dayOn:{},        // legacy explicit school-day override (kept for older saved data)
   taskHistory:[],  // recent task, focus, and schedule activity
+  deletedIds:{},
+  deletedKeys:{},
+  keyTimes:{},
   gpaCourses:[],   // [{id,name,grade,level,credits}]
   gpaMode:'weighted',
 };
@@ -1492,7 +1693,7 @@ let historyPast = [], historyFuture = [];
 let calendarMonth = dateOnly(new Date());
 let timerSeconds = 25 * 60, timerHandle = null, timerTask = '', timerMode = 'timer', timerAlarmAt = '', timerActive = false;
 
-function taskSnapshot(){ return JSON.stringify({tasks:data.tasks,freeTasks:data.freeTasks,autoDone:data.autoDone}); }
+function taskSnapshot(){ return JSON.stringify({tasks:data.tasks,freeTasks:data.freeTasks,autoDone:data.autoDone,deletedIds:data.deletedIds,deletedKeys:data.deletedKeys,keyTimes:data.keyTimes}); }
 function recordHistory(){
   historyPast.push(taskSnapshot());
   if(historyPast.length > 40) historyPast.shift();
@@ -1501,6 +1702,7 @@ function recordHistory(){
 function restoreTaskSnapshot(snapshot){
   const parsed=JSON.parse(snapshot);
   data.tasks=parsed.tasks||{}; data.freeTasks=parsed.freeTasks||{}; data.autoDone=parsed.autoDone||{};
+  data.deletedIds=stampMapValue(parsed.deletedIds); data.deletedKeys=stampMapValue(parsed.deletedKeys); data.keyTimes=stampMapValue(parsed.keyTimes);
   save(); renderWeek();
 }
 function undoAction(){
@@ -1513,9 +1715,15 @@ function redoAction(){
 }
 
 // ─── STORAGE ─────────────────────────────────────────────
-function save(){
+function commitState(){
   const storageKey = getStorageKey();
   try{ localStorage.setItem(storageKey, JSON.stringify({cfg,data})); }catch(e){}
+  lastSavedState = cloneState();
+}
+function save(){
+  applyLocalDiff(lastSavedState);
+  commitState();
+  localDirty = true;
   scheduleSyncToCloud();
 }
 function load(){
@@ -1524,11 +1732,9 @@ function load(){
     const r=localStorage.getItem(storageKey);
     if(!r)return false;
     const p=JSON.parse(r);
-    if(p.cfg){
-      cfg={...cfg,...p.cfg};
-      if(!cfg.automations) cfg.automations=[];
-    }
-    if(p.data) data={tasks:{},freeTasks:{},autoDone:{},dayModes:{},dayOv:{},dayOff:{},dayOn:{},taskHistory:[],gpaCourses:[],gpaMode:'weighted',...p.data};
+    if(p.cfg) cfg=normalizeStateCfg(p.cfg);
+    if(p.data) data=normalizeStateData(p.data);
+    lastSavedState = cloneState();
     return true;
   }catch(e){return false}
 }
@@ -4010,6 +4216,10 @@ async function boot(){
       updateUserPill();
     }
     if(event === 'SIGNED_OUT'){
+      clearTimeout(syncTimer);
+      stopCloudWatch();
+      lastAppliedRemoteAt = null;
+      localDirty = false;
       supaUser = null;
       updateUserPill();
     }
@@ -4020,7 +4230,9 @@ async function boot(){
   if(session){
     await onSignedIn(session.user);
   } else {
-    // No session — show auth screen
+    cfg = normalizeStateCfg(cfg);
+    data = normalizeStateData(data);
+    lastSavedState = cloneState();
     showScreen('screen-auth');
   }
 }

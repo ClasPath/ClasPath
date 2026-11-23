@@ -1017,6 +1017,7 @@ const supa = supabase.createClient(SUPA_URL, SUPA_KEY);
 let supaUser = null;   // current auth user, or null
 let syncTimer = null;  // debounce handle for cloud sync
 let syncChain = Promise.resolve();
+let lastSyncError = null;
 let lastAppliedRemoteAt = null;
 let lastSavedState = null;
 let localDirty = false;
@@ -1137,7 +1138,6 @@ async function submitAuth(){
 }
 
 // ── Called after successful sign-in ───────────────────
-const MAX_DELETED_IDS = 1000;
 const VALUE_MAPS = ['autoDone','dayModes','dayOv','dayOff','dayOn'];
 
 function defaultCfg(){ return { school:'early', periods:[], automations:[], viewMode:'week', timeFormat:'12h' }; }
@@ -1177,9 +1177,7 @@ function mergeStampMaps(...sources){
   sources.forEach(source => {
     Object.entries(stampMapValue(source)).forEach(([id, at]) => { merged[id] = Math.max(merged[id] || 0, at); });
   });
-  let entries = Object.entries(merged);
-  if(entries.length > MAX_DELETED_IDS) entries = entries.sort((a,b) => a[1] - b[1]).slice(entries.length - MAX_DELETED_IDS);
-  return Object.fromEntries(entries);
+  return merged;
 }
 function stampAt(map, key){ return Number(map?.[key]) || 0; }
 function itemTime(item){ return Number(item?.updatedAt) || 0; }
@@ -1208,7 +1206,8 @@ function mergeItemLists(cloudValue, localValue, type, tombstones){
   new Set([...cloudItems.keys(), ...localItems.keys()]).forEach(id => {
     const c = cloudItems.get(id), l = localItems.get(id);
     const chosen = !c ? l : !l ? c : (itemTime(l) >= itemTime(c) ? l : c);
-    if(stampAt(tombstones, idStamp(type, id)) >= itemTime(chosen)) return;
+    const deletedAt=stampAt(tombstones, idStamp(type, id));
+    if(deletedAt>0 && deletedAt>=itemTime(chosen)) return;
     result.push(chosen);
   });
   return result;
@@ -1225,7 +1224,10 @@ function mergePeriods(cloudList, localList, cloudTimes, localTimes, tombstones){
     });
   });
   return [...byNum.entries()]
-    .filter(([num, entry]) => entry.time > stampAt(tombstones, idStamp('period', num)))
+    .filter(([num, entry]) => {
+      const deletedAt=stampAt(tombstones, idStamp('period', num));
+      return deletedAt<=0 || entry.time>deletedAt;
+    })
     .sort((a,b) => Number(a[0]) - Number(b[0]))
     .map(([, entry]) => entry.period);
 }
@@ -1236,7 +1238,8 @@ function mergeTaskCollections(cloudTasks, cloudFreeTasks, localTasks, localFreeT
   new Set([...cloudItems.keys(), ...localItems.keys()]).forEach(id => {
     const c = cloudItems.get(id), l = localItems.get(id);
     const chosen = !c ? l : !l ? c : (itemTime(l.item) >= itemTime(c.item) ? l : c);
-    if(stampAt(tombstones, idStamp('task', id)) >= itemTime(chosen.item)) return;
+    const deletedAt=stampAt(tombstones, idStamp('task', id));
+    if(deletedAt>0 && deletedAt>=itemTime(chosen.item)) return;
     const target = /_P\d+$/.test(chosen.key) ? tasks : freeTasks;
     if(!target[chosen.key]) target[chosen.key] = [];
     target[chosen.key].push(chosen.item);
@@ -1249,7 +1252,8 @@ function mergeValueMaps(name, cloudMap, localMap, cloudTimes, localTimes, delete
     const stamp = keyStamp(name, key);
     const c = cloudMap?.[key], l = localMap?.[key];
     const newest = Math.max(stampAt(cloudTimes, stamp), stampAt(localTimes, stamp));
-    if(stampAt(deletedKeys, stamp) >= newest) return;
+    const deletedAt=stampAt(deletedKeys, stamp);
+    if(deletedAt>0 && deletedAt>=newest) return;
     let value;
     if(c === undefined) value = l;
     else if(l === undefined) value = c;
@@ -1430,7 +1434,8 @@ async function onSignedIn(user){
 
 // ── Cloud sync ─────────────────────────────────────────
 function enqueueSync(task){
-  syncChain = syncChain.then(task).catch(err => {
+  syncChain = syncChain.then(async () => {lastSyncError=null;await task();}).catch(err => {
+    lastSyncError=err;
     console.warn('Sync failed:', err);
     setSyncDot('err');
   });
@@ -1480,6 +1485,7 @@ async function pushCloudState(){
 async function reconcileWithCloud(){
   if(!supaUser) return;
   let didMerge = false;
+  lastSyncError = null;
   try {
     const remote = await fetchCloudState();
     if(remote && remote.updatedAt !== lastAppliedRemoteAt){
@@ -1496,6 +1502,7 @@ async function reconcileWithCloud(){
     }
     if(didMerge || localDirty) await pushCloudState();
   } catch(err){
+    lastSyncError = err;
     console.warn('Sync failed:', err.message || err);
     setSyncDot('err');
   }
@@ -1540,7 +1547,11 @@ function stopCloudWatch(){
 
 // ── Sign out ───────────────────────────────────────────
 async function signOut(){
-  if(!confirm('Sign out of your account?')) return;
+  if(!confirm('Sign out of your account?')) return false;
+  const termPanel=document.getElementById('term-panel');
+  if(termPanel)termPanel.classList.remove('open');
+  const termTab=document.getElementById('term-tab');
+  if(termTab)termTab.classList.remove('active');
   if(screenTransitionTimer){clearTimeout(screenTransitionTimer);screenTransitionTimer=null;}
   document.querySelectorAll('.mo').forEach(modal=>modal.classList.remove('open'));
   document.querySelectorAll('.color-palette').forEach(palette=>palette.remove());
@@ -1562,6 +1573,7 @@ async function signOut(){
   document.querySelectorAll('.screen').forEach(screen=>screen.classList.remove('active','leaving'));
   document.getElementById('screen-auth').classList.add('active');
   toast('Signed out');
+  return true;
 }
 
 // ── User pill in header ────────────────────────────────
@@ -1775,7 +1787,7 @@ let historyPast = [], historyFuture = [];
 let calendarMonth = dateOnly(new Date());
 let timerSeconds = 25 * 60, timerHandle = null, timerTask = '', timerMode = 'timer', timerAlarmAt = '', timerActive = false;
 
-function taskSnapshot(){ return JSON.stringify({tasks:data.tasks,freeTasks:data.freeTasks,autoDone:data.autoDone,deletedIds:data.deletedIds,deletedKeys:data.deletedKeys,keyTimes:data.keyTimes}); }
+function taskSnapshot(){ return JSON.stringify({tasks:data.tasks,freeTasks:data.freeTasks,autoDone:data.autoDone,deletedIds:data.deletedIds,deletedKeys:data.deletedKeys,keyTimes:data.keyTimes,dayOff:data.dayOff,dayOn:data.dayOn,dayOv:data.dayOv,dayModes:data.dayModes,periods:cfg.periods}); }
 function recordHistory(){
   historyPast.push(taskSnapshot());
   if(historyPast.length > 40) historyPast.shift();
@@ -1785,6 +1797,8 @@ function restoreTaskSnapshot(snapshot){
   const parsed=JSON.parse(snapshot);
   data.tasks=parsed.tasks||{}; data.freeTasks=parsed.freeTasks||{}; data.autoDone=parsed.autoDone||{};
   data.deletedIds=stampMapValue(parsed.deletedIds); data.deletedKeys=stampMapValue(parsed.deletedKeys); data.keyTimes=stampMapValue(parsed.keyTimes);
+  data.dayOff=parsed.dayOff||{}; data.dayOn=parsed.dayOn||{}; data.dayOv=parsed.dayOv||{}; data.dayModes=parsed.dayModes||{};
+  cfg.periods=parsed.periods||[];
   save(); renderWeek();
 }
 function undoAction(){
@@ -1912,10 +1926,11 @@ function renderTaskHistory(){
   }).join('');
 }
 function clearTaskHistory(){
-  if(!(data.taskHistory||[]).length){toast('History is already empty');return;}
-  if(!confirm('Clear all task history?')) return;
+  if(!(data.taskHistory||[]).length){toast('History is already empty');return false;}
+  if(!confirm('Clear all task history?')) return false;
   data.taskHistory=[];
   save(); renderTaskHistory(); toast('History cleared');
+  return true;
 }
 
 // ─── SCHEDULE LOGIC ──────────────────────────────────────
@@ -2187,6 +2202,7 @@ function setDayState(ds, makeOff){
 
   if(isWknd){
     if(!data.dayOff[ds])return;
+    recordHistory();
     delete data.dayOff[ds];
     delete data.dayOn[ds];
     const freeKey=`${ds}-free`;
@@ -2198,6 +2214,7 @@ function setDayState(ds, makeOff){
 
   const currentlyOff=!!data.dayOff[ds];
   if(makeOff === currentlyOff) return;
+  recordHistory();
   switchDayTaskMode(ds,makeOff);
   if(makeOff) data.dayOff[ds]=true;
   else delete data.dayOff[ds];
@@ -2560,6 +2577,26 @@ function migrateLegacyWeekendTasks(){
   Object.keys(data.dayModes||{}).forEach(ds=>{
     const date=new Date(`${ds}T12:00:00`);
     if(WE.has(date.getDay())){delete data.dayModes[ds];changed=true;}
+  });
+  Object.keys(data.dayOff||{}).forEach(ds=>{
+    const date=new Date(`${ds}T12:00:00`);
+    if(WE.has(date.getDay())){delete data.dayOff[ds];changed=true;}
+  });
+  Object.keys(data.freeTasks||{}).forEach(key=>{
+    const match=key.match(/^(\d{4}-\d{2}-\d{2})-(after|morning|lunch)$/);
+    if(!match) return;
+    const date=new Date(`${match[1]}T12:00:00`);
+    if(!WE.has(date.getDay())) return;
+    const freeKey=`${match[1]}-free`;
+    if(!Array.isArray(data.freeTasks[freeKey])) data.freeTasks[freeKey]=[];
+    const existing=new Set(data.freeTasks[freeKey].map(task=>task.id));
+    (data.freeTasks[key]||[]).forEach(task=>{
+      if(existing.has(task.id)) return;
+      data.freeTasks[freeKey].push({...task});
+      existing.add(task.id);
+    });
+    delete data.freeTasks[key];
+    changed=true;
   });
   if(changed) save();
 }
@@ -3656,6 +3693,7 @@ function openDayMod(ds){
 function applyDayOv(btn){
   if(!dayModalDate)return;
   const v=btn.dataset.v;
+  recordHistory();
   if(v==='auto') delete data.dayOv[dayModalDate]; else data.dayOv[dayModalDate]=v;
   document.querySelectorAll('#daymod .dpb').forEach(b=>b.classList.remove('sel'));
   btn.classList.add('sel');
@@ -3706,7 +3744,7 @@ function saveSets(){
   collectP('splist'); save(); closeMod('setmod'); renderWeek(); toast('Settings saved ✓');
 }
 function clearAll(){
-  if(!confirm('Clear all data on this device? This will also sign you out.'))return;
+  if(!confirm('Clear all data on this device? This will also sign you out.'))return false;
   const currentKey = getStorageKey();
   localStorage.removeItem(LS_KEY);
   localStorage.removeItem(currentKey);
@@ -3715,6 +3753,7 @@ function clearAll(){
     if(key && key.startsWith(`${LS_KEY}:`)) localStorage.removeItem(key);
   }
   supa.auth.signOut().finally(()=>location.reload());
+  return true;
 }
 
 // ─── MODAL ───────────────────────────────────────────────
@@ -4366,6 +4405,7 @@ function termTokenize(str){
       if(cur){tokens.push(cur);cur='';}
     }else cur+=ch;
   }
+  if(quote)throw new Error('Unterminated quote');
   if(cur)tokens.push(cur);
   return tokens;
 }
@@ -4398,7 +4438,7 @@ function termParseTime(value){
 }
 function termLooksLikeDate(token){
   const t=String(token||'').toLowerCase();
-  return /^\d{4}-\d{2}-\d{2}$/.test(t)||['today','tom','tomorrow','yesterday'].includes(t)||['sun','mon','tue','wed','thu','fri','sat'].includes(t.slice(0,3));
+  return /^\d{4}-\d{2}-\d{2}$/.test(t)||['today','tom','tomorrow','yesterday','sun','sunday','mon','monday','tue','tues','tuesday','wed','weds','wednesday','thu','thur','thurs','thursday','fri','friday','sat','saturday'].includes(t);
 }
 function termParseDate(token){
   const t=String(token||'').toLowerCase();
@@ -4409,8 +4449,9 @@ function termParseDate(token){
   else if(t==='tom'||t==='tomorrow')d=addDays(new Date(),1);
   else if(t==='yesterday')d=addDays(new Date(),-1);
   else{
+    const aliases={sun:'sun',sunday:'sun',mon:'mon',monday:'mon',tue:'tue',tues:'tue',tuesday:'tue',wed:'wed',weds:'wed',wednesday:'wed',thu:'thu',thur:'thu',thurs:'thu',thursday:'thu',fri:'fri',friday:'fri',sat:'sat',saturday:'sat'};
     const names=['sun','mon','tue','wed','thu','fri','sat'];
-    const idx=names.indexOf(t.slice(0,3));
+    const idx=names.indexOf(aliases[t]);
     if(idx>=0){d=new Date();let diff=(idx-d.getDay()+7)%7;if(diff===0)diff=7;d=addDays(d,diff);}
   }
   if(!d||isNaN(d.getTime()))return null;
@@ -4426,16 +4467,19 @@ function termParsePeriod(token){
 }
 function termResolveTarget(ds,token){
   const t=String(token||'').toLowerCase();
+  const date=new Date(ds+'T12:00:00');
+  const isWknd=WE.has(date.getDay());
+  const off=isDayOff(date);
   const p=/^p\d{1,2}$/i.test(t)?termParsePeriod(t):null;
   if(p){
-    const date=new Date(ds+'T12:00:00');
-    if(isDayOff(date))return {list:'freeTasks',key:`${ds}-free`,classNum:p,label:`P${p}`};
+    if(off)return {list:'freeTasks',key:`${ds}-free`,classNum:p,label:`P${p}`};
     return {list:'tasks',key:`${ds}_P${p}`,classNum:null,label:`P${p}`};
   }
   const aliases={free:'free',hw:'free',homework:'free',after:'after',extra:'after',morning:'morning',morn:'morning',lunch:'lunch'};
   const a=aliases[t];
-  if(a)return {list:'freeTasks',key:`${ds}-${a}`,classNum:null,label:a};
-  return null;
+  if(!a)return null;
+  if(isWknd||(off&&a!=='after'))return {list:'freeTasks',key:`${ds}-free`,classNum:null,label:'free'};
+  return {list:'freeTasks',key:`${ds}-${a}`,classNum:null,label:a};
 }
 function termStoreFor(target){return target.list==='tasks'?data.tasks:data.freeTasks;}
 function termAddItem(ds,target,text,time){
@@ -4458,8 +4502,9 @@ function termPullTrailingTime(parts){
     const parsed=termParseTime(p[p.length-2]+' '+p[p.length-1]);
     if(parsed)return {time:parsed,parts:p.slice(0,-2)};
   }
-  if(p.length){
-    const parsed=termParseTime(p[p.length-1]);
+  const last=String(p[p.length-1]||'').toLowerCase();
+  if(p.length&&(/:/.test(last)||/\d\s*(a|p)\.?m\.?$/.test(last)||['noon','midnight'].includes(last))){
+    const parsed=termParseTime(last);
     if(parsed)return {time:parsed,parts:p.slice(0,-1)};
   }
   return {time:'',parts:p};
@@ -4469,8 +4514,10 @@ function termAddFromTokens(tokens){
   let time='';
   for(let i=parts.length-1;i>1;i--){
     if(parts[i].toLowerCase()==='at'){
-      const parsed=termParseTime(parts.slice(i+1).join(' '));
+      const tail=parts.slice(i+1).join(' ');
+      const parsed=termParseTime(tail);
       if(parsed){time=parsed;parts=parts.slice(0,i);break;}
+      if(/\d/.test(tail)||/noon|midnight/i.test(tail))throw new Error('Invalid time: '+tail);
     }
   }
   if(!time){
@@ -4516,7 +4563,7 @@ function termListAll(filter){
     if(!Array.isArray(items))return;
     const parts=key.split('_');
     const ds=parts[0];
-    const label=parts[1]?'P'+parts[1]:'class';
+    const label=parts[1]?(/^P\d+$/.test(parts[1])?parts[1]:'P'+parts[1]):'class';
     items.forEach((item,i)=>groups.push({ds,label,n:i+1,item,key}));
   });
   Object.entries(data.freeTasks||{}).forEach(([key,items])=>{
@@ -4550,7 +4597,7 @@ function termTakeOptions(tokens,names){
   const rest=[];
   for(let i=0;i<tokens.length;i++){
     const t=String(tokens[i]).toLowerCase();
-    if(t==='lab'){
+    if(t==='lab'&&names.includes('lab')){
       const next=String(tokens[i+1]||'').toLowerCase();
       if(['on','off','true','false','1','0'].includes(next)){opts.lab=next;i++;}
       else opts.lab='on';
@@ -4608,8 +4655,23 @@ function termAutoList(){
 function termAutoAdd(tokens){
   if(tokens.length<3)throw new Error('Usage: auto add <class|weekday|letter|date|keyword> ...');
   const type=tokens.shift().toLowerCase();
-  const {opts,rest}=termTakeOptions(tokens,['at','dest','days']);
-  const time=termParseTime(opts.at||'')||'';
+  let atParts=[];
+  for(let i=0;i<tokens.length;i++){
+    if(tokens[i].toLowerCase()==='at'){
+      let end=i+1;
+      while(end<tokens.length&&!['dest','days'].includes(tokens[end].toLowerCase()))end++;
+      atParts=tokens.slice(i+1,end);
+      tokens=[...tokens.slice(0,i),...tokens.slice(end)];
+      break;
+    }
+  }
+  let time='';
+  if(atParts.length){
+    const parsed=termParseTime(atParts.join(' '));
+    if(parsed===null)throw new Error('Invalid time: '+atParts.join(' '));
+    time=parsed;
+  }
+  const {opts,rest}=termTakeOptions(tokens,['dest','days']);
   const dest=termAutomationDest(opts.dest,type,null);
   let match=null;
   let text='';
@@ -4617,7 +4679,7 @@ function termAutoAdd(tokens){
     const num=termParsePeriod(rest[0]);
     if(!num)throw new Error('Class automation needs P1–P7');
     match=num;
-    dest.targetPeriod=num;
+    if(dest.where==='same'||['lunch','after','morning'].includes(dest.where))dest.targetPeriod=num;
     text=rest.slice(1).join(' ').trim();
   }else if(type==='weekday'){
     match=termParseWeekdays(rest[0]||'');
@@ -4672,7 +4734,10 @@ function termTimer(tokens){
     termPrint('Timer mode: '+sub,'ok');
     return;
   }
-  if(sub==='start'){toggleTimer();termPrint('Timer started');return;}
+  if(sub==='start'){
+    if(timerHandle){termPrint('Timer already running','dim');return;}
+    toggleTimer();termPrint('Timer started','ok');return;
+  }
   if(sub==='pause'){pauseTimer();termPrint('Timer paused');return;}
   if(sub==='reset'){resetTimer();termPrint('Timer reset');return;}
   throw new Error('Unknown timer command: '+sub);
@@ -4701,7 +4766,7 @@ async function termRun(raw){
   if(cmd==='help'||cmd==='?'){termHelp();return;}
   if(cmd==='clear'||cmd==='cls'){termClear();return;}
   if(cmd==='add'){termAddFromTokens(rest);return;}
-  if(termLooksLikeDate(cmd)){termAddFromTokens(tokens);return;}
+  if(tokens.length>=3&&termLooksLikeDate(cmd)){termAddFromTokens(tokens);return;}
   switch(cmd){
     case 'tasks':{
       const filter=(rest[0]||'all').toLowerCase();
@@ -4745,7 +4810,7 @@ async function termRun(raw){
       const found=termFindItem(ds,target,rest.slice(2).join(' '));
       recordHistory();
       found.item.done=!found.item.done;
-      logTaskEvent(found.item.done?'task_done':'task_undone',found.item.text,{where:describeTaskKey(found.key)});
+      logTaskEvent(found.item.done?'task_completed':'task_reopened',found.item.text,{where:describeTaskKey(found.key)});
       save();renderWeek();
       termPrint(`${found.item.done?'Done':'Reopened'} #${found.n}: ${found.item.text}`,'ok');
       return;
@@ -4762,8 +4827,10 @@ async function termRun(raw){
       let time='';
       for(let i=parts.length-1;i>=0;i--){
         if(parts[i].toLowerCase()==='at'){
-          const parsed=termParseTime(parts.slice(i+1).join(' '));
+          const tail=parts.slice(i+1).join(' ');
+          const parsed=termParseTime(tail);
           if(parsed){time=parsed;parts=parts.slice(0,i);break;}
+          if(/\d/.test(tail)||/noon|midnight/i.test(tail))throw new Error('Invalid time: '+tail);
         }
       }
       if(!time){
@@ -4853,9 +4920,8 @@ async function termRun(raw){
       if(!rest.length)throw new Error('Usage: off|school <date>');
       const ds=termParseDate(rest[0]);
       if(!ds)throw new Error('Invalid date: '+rest[0]);
-      const makeOff=cmd==='off'||cmd==='homework';
+      const makeOff=cmd==='off'||cmd==='homework'||cmd==='weekend';
       const isWknd=WE.has(new Date(ds+'T12:00:00').getDay());
-      recordHistory();
       setDayState(ds,makeOff);
       termPrint(`${ds} is ${isWknd?'always a weekend day':makeOff?'a homework day':'a school day'}`,'ok');
       return;
@@ -4918,7 +4984,7 @@ async function termRun(raw){
         if(prefix&&prefix[2].trim())classArgs=[prefix[2].trim(),...classArgs];
         const num=termParsePeriod(prefix?prefix[1]:rest[0]);
         if(!num)throw new Error('Usage: class add P3 "Name" [lab] [days A,B] [color #rrggbb]');
-        const {opts,rest:r}=termTakeOptions(classArgs,['days','color']);
+        const {opts,rest:r}=termTakeOptions(classArgs,['days','color','lab']);
         const name=limitClassName(r[0]||'');
         if(!name)throw new Error('Class name cannot be empty');
         const lab=!!opts.lab&&!['off','false','0'].includes(String(opts.lab).toLowerCase());
@@ -4987,7 +5053,11 @@ async function termRun(raw){
     case 'log':{openTaskHistory();termPrint('History opened');return;}
     case 'history':{
       const sub=(rest[0]||'').toLowerCase();
-      if(sub==='clear'){clearTaskHistory();termPrint('History clear requested');return;}
+      if(sub==='clear'){
+        if(!(data.taskHistory||[]).length){termPrint('History is already empty','dim');return;}
+        termPrint(clearTaskHistory()?'History cleared':'History clear cancelled');
+        return;
+      }
       openTaskHistory();
       if(['all','tasks','focus'].includes(sub))setHistoryFilter(sub);
       termPrint('History opened');return;
@@ -5022,8 +5092,19 @@ async function termRun(raw){
       if(sub==='edit'){
         const course=termGpaFind(rest[0]);
         const field=(rest[1]||'').toLowerCase();
-        const value=rest.slice(2).join(' ').trim();
+        let value=rest.slice(2).join(' ').trim();
         if(!value)throw new Error('Usage: gpa edit <#|id> name|grade|level|credits Value');
+        if(!['name','grade','level','credits'].includes(field))throw new Error('Unknown GPA field: '+field);
+        if(field==='grade'){
+          value=value.toUpperCase();
+          if(!MHS_GRADES.includes(value))throw new Error('Grade must be one of '+MHS_GRADES.join(', '));
+        }else if(field==='level'){
+          value=value.toLowerCase();
+          if(!MHS_GPA_LEVELS[value])throw new Error('Level must be regular, honors, or ap');
+        }else if(field==='credits'){
+          const credits=Number(value);
+          if(!Number.isFinite(credits)||credits<0)throw new Error('Credits must be a non-negative number');
+        }
         updateGpaCourse(course.id,field,value);
         renderGpaCalculator();termPrint(`GPA #${data.gpaCourses.indexOf(course)+1} ${field} updated`,'ok');return;
       }
@@ -5035,12 +5116,15 @@ async function termRun(raw){
     }
     case 'save':{saveCurrentState();termPrint('Saved locally and queued cloud sync','ok');return;}
     case 'sync':{
+      if(!supaUser){termPrint('Sign in to sync first','err');return;}
       saveCurrentState();
       await enqueueSync(reconcileWithCloud);
-      termPrint('Cloud sync complete','ok');return;
+      if(lastSyncError)termPrint('Cloud sync failed: '+(lastSyncError.message||lastSyncError),'err');
+      else termPrint('Cloud sync complete','ok');
+      return;
     }
     case 'signout':{await signOut();return;}
-    case 'clearall':{clearAll();termPrint('Clear-all requested');return;}
+    case 'clearall':{termPrint(clearAll()?'Clear-all started; signing out…':'Clear-all cancelled');return;}
     default:throw new Error('Unknown command: '+cmd+'. Type ? for help.');
   }
 }
